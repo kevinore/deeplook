@@ -1,0 +1,12 @@
+Messages and calls are end-to-end encrypted. No one outside of this chat can read or listen to them.
+
+1/15/25, 9:30 AM - Customer: Hi, I'd like to know more about your services.
+1/15/25, 9:45 AM - Beauty Studio: Hello! Welcome to Beauty Studio. How can I help you today?
+1/15/25, 9:47 AM - Customer: What are your prices for a haircut?
+1/15/25, 9:48 AM - Beauty Studio: Our haircut prices start at $30 for women and $20 for men. Do you have any specific style in mind?
+1/15/25, 9:50 AM - Customer: I'm looking for a balayage treatment
+1/15/25, 9:52 AM - Beauty Studio: Great choice! Balayage starts at $120 and takes about 3 hours. Would you like to book an appointment?
+1/15/25, 9:55 AM - Customer: Yes please! When do you have availability this week?
+1/15/25, 9:56 AM - Beauty Studio: We have availability Thursday at 2pm and Friday at 10am. Which works best for you?
+1/15/25, 10:00 AM - Customer: Thursday at 2pm works great!
+1/15/25, 10:01 AM - Beauty Studio: Perfect! I'll book you in for Thursday at 2pm. See you then!

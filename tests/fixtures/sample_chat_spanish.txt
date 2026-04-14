@@ -1,0 +1,15 @@
+Los mensajes y llamadas están cifrados de extremo a extremo. Nadie fuera de este chat puede leerlos ni escucharlos.
+
+11/1/25, 10:39 a. m. - Cliente: ¡Hola! Me gustaría agendar una cita de valoración gratuita para una limpieza facial.
+11/1/25, 10:39 a. m. - Cliente: Limpieza facial
+11/1/25, 10:59 a. m. - Wellness By Diego Omar: ¡Hola, buen día! Soy Valentina Ávila, asesora de bienestar. Con gusto te ayudo a agendar tu cita. ¿Cuál es tu nombre completo?
+11/1/25, 11:02 a. m. - Cliente: María González
+11/1/25, 11:05 a. m. - Wellness By Diego Omar: Perfecto María! Tenemos disponibilidad esta semana:
+- Miércoles 15 a las 10am
+- Jueves 16 a las 3pm
+- Viernes 17 a las 11am
+¿Cuál te queda mejor?
+11/1/25, 11:08 a. m. - Cliente: El jueves a las 3pm estaría perfecto
+11/1/25, 11:10 a. m. - Wellness By Diego Omar: Excelente! Quedaste agendada para el jueves 16 de enero a las 3pm. Te envío la dirección: Calle 45 #23-10, Bogotá. ¿Tienes alguna pregunta?
+11/1/25, 11:12 a. m. - Cliente: Perfecto, muchas gracias!
+11/1/25, 11:12 a. m. - Wellness By Diego Omar: Con mucho gusto! Te esperamos 😊

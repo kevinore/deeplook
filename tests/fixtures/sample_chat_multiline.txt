@@ -1,0 +1,26 @@
+Los mensajes y llamadas están cifrados de extremo a extremo. Nadie fuera de este chat puede leerlos ni escucharlos.
+
+11/1/25, 10:00 a. m. - Cliente: Buenos días, ¿pueden enviarme información sobre la limpieza facial?
+11/1/25, 10:05 a. m. - Negocio: ¡Claro! Aquí te dejo la información de nuestra Limpieza Facial Profunda:
+
+✨ LIMPIEZA FACIAL PROFUNDA ✨
+
+Incluye:
+• Limpieza con vapor
+• Extracción de comedones
+• Mascarilla purificante
+• Hidratación profunda
+• Masaje facial relajante
+
+Duración: 90 minutos
+Precio: $150.000 COP
+Ideal para: todo tipo de piel
+
+¿Te gustaría agendar una cita?
+11/1/25, 10:10 a. m. - Cliente: Sí, me interesa. ¿Tienen disponibilidad para este fin de semana?
+11/1/25, 10:12 a. m. - Negocio: Este fin de semana tenemos:
+- Sábado 18 a las 10am y 2pm
+- Domingo 19 a las 11am
+¿Cuál prefieres?
+11/1/25, 10:15 a. m. - Cliente: El sábado a las 10am perfecto
+11/1/25, 10:16 a. m. - Negocio: Confirmado! Sábado 18 a las 10am. Nos vemos!

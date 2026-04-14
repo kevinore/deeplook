@@ -1,0 +1,65 @@
+import openai
+
+from app.analytics.ai.provider import AIProvider, AIResponse
+from app.exceptions import AIProviderError
+
+# Cost per million tokens (USD)
+_PRICING: dict[str, dict[str, float]] = {
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o": {"input": 5.00, "output": 15.00},
+}
+
+
+class OpenAIProvider(AIProvider):
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+        self._model = model
+        self._client = openai.AsyncOpenAI(api_key=api_key)
+
+    @property
+    def provider_name(self) -> str:
+        return "openai"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    async def analyze(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 2000,
+        response_format: str = "json",
+    ) -> AIResponse:
+        try:
+            kwargs: dict = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if response_format == "json":
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = await self._client.chat.completions.create(**kwargs)
+            content = response.choices[0].message.content or ""
+            tokens_in = response.usage.prompt_tokens if response.usage else 0
+            tokens_out = response.usage.completion_tokens if response.usage else 0
+
+            return AIResponse(
+                content=content,
+                model=self._model,
+                provider="openai",
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+                cost_usd=self.estimate_cost(tokens_in, tokens_out),
+            )
+        except openai.APIError as exc:
+            raise AIProviderError("openai", self._model, str(exc), getattr(exc, "status_code", None)) from exc
+
+    def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
+        pricing = _PRICING.get(self._model, {"input": 0.0, "output": 0.0})
+        return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000

@@ -1,0 +1,11 @@
+Los mensajes y llamadas están cifrados de extremo a extremo. Nadie fuera de este chat puede leerlos ni escucharlos.
+
+11/2/25, 2:00 p. m. - Cliente: Hola, les mando una foto de mi piel para que me recomienden un tratamiento
+11/2/25, 2:01 p. m. - Cliente: imagen omitida
+11/2/25, 2:05 p. m. - Spa: Gracias por la foto! Veo que tienes piel mixta con tendencia grasa. Te recomiendo nuestra limpieza con ácido salicílico.
+11/2/25, 2:06 p. m. - Spa: audio omitido
+11/2/25, 2:08 p. m. - Cliente: Perfecto, ¿cuánto cuesta?
+11/2/25, 2:09 p. m. - Spa: $80.000 COP. Te mando nuestro catálogo completo:
+11/2/25, 2:09 p. m. - Spa: catalogo_2025.pdf (file attached)
+11/2/25, 2:12 p. m. - Cliente: Qué bueno! Me interesa agendar
+11/2/25, 2:13 p. m. - Spa: ubicación: https://maps.google.com/?q=Calle+45+Bogota
