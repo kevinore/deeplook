@@ -27,7 +27,7 @@ class OpenAIProvider(AIProvider):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.3,
+        temperature: float = 0.0,
         max_tokens: int = 2000,
         response_format: str = "json",
     ) -> AIResponse:
@@ -40,6 +40,7 @@ class OpenAIProvider(AIProvider):
                 ],
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "seed": 42,
             }
             if response_format == "json":
                 kwargs["response_format"] = {"type": "json_object"}

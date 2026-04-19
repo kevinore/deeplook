@@ -31,7 +31,7 @@ class AIProvider(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.3,
+        temperature: float = 0.0,
         max_tokens: int = 2000,
         response_format: str = "json",
     ) -> AIResponse:
@@ -40,7 +40,7 @@ class AIProvider(ABC):
     async def analyze_batch(
         self,
         prompts: list[dict],
-        temperature: float = 0.3,
+        temperature: float = 0.0,
     ) -> list[AIResponse]:
         """Default: sequential calls. Providers can override with native batch APIs."""
         results = []

@@ -26,6 +26,7 @@ async def create_client(
         business_name=body.business_name,
         business_type=body.business_type,
         business_identifiers=body.business_identifiers,
+        average_transaction_value=body.average_transaction_value,
     )
     await db.commit()
     return ClientResponse.model_validate(client)

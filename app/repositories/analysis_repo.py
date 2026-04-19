@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import AnalysisJob, ConversationAnalysis, DailyMetrics
+from app.models.database import AnalysisJob, Conversation, ConversationAnalysis, DailyMetrics
 from app.repositories.base import BaseRepository
 
 
@@ -25,10 +25,14 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
             job.processed_conversations += 1
             await self.session.flush()
 
-    async def add_token_usage(self, job_id: str, tokens: int, cost: float) -> None:
+    async def add_token_usage(
+        self, job_id: str, tokens_input: int, tokens_output: int, cost: float
+    ) -> None:
         job = await self.get(job_id)
         if job:
-            job.total_tokens_used += tokens
+            job.total_tokens_input += tokens_input
+            job.total_tokens_output += tokens_output
+            job.total_tokens_used += tokens_input + tokens_output
             job.total_cost_usd += cost
             await self.session.flush()
 
@@ -46,9 +50,16 @@ class ConversationAnalysisRepository(BaseRepository[ConversationAnalysis]):
         return result.scalars().first()
 
     async def list_by_job(self, job_id: str) -> list[ConversationAnalysis]:
+        """
+        Return analyses for this job ordered by conversation start time (chronological).
+        Stable sort: started_at ASC, conversation_id ASC as tiebreaker.
+        This guarantees the same PDF is produced every time the report is downloaded.
+        """
         result = await self.session.execute(
             select(ConversationAnalysis)
+            .join(Conversation, ConversationAnalysis.conversation_id == Conversation.id)
             .where(ConversationAnalysis.analysis_job_id == job_id)
+            .order_by(Conversation.started_at.asc(), ConversationAnalysis.conversation_id.asc())
         )
         return list(result.scalars().all())
 

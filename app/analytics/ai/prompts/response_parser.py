@@ -27,6 +27,18 @@ _CONVERSION_MAP = {
     "n/a": ConversionStatus.NOT_APPLICABLE,
 }
 
+# Safety net: common English words that indicate the AI responded in English
+_ENGLISH_INDICATORS = {
+    "scheduling", "inquiry", "about", "appointment", "treatment",
+    "service", "information", "question", "regarding", "availability",
+    "pricing", "booking", "request", "follow", "purchase",
+}
+
+
+def _may_be_english(text: str) -> bool:
+    words = set(text.lower().split())
+    return bool(words & _ENGLISH_INDICATORS)
+
 
 def _clamp(value: float | int | None, lo: float, hi: float, default: float) -> float:
     if value is None:
@@ -72,12 +84,22 @@ def parse_ai_response(raw_content: str, conversation_id: str) -> ConversationAna
         speed_perception=_clamp(qb_raw.get("speed_perception"), 0, 10, 5.0),
     )
 
+    primary_topic = str(data.get("primary_topic") or "")
+    if primary_topic and _may_be_english(primary_topic):
+        logger.warning(
+            "Topic '%s' for conversation %s appears to be in English — check AI language instructions",
+            primary_topic,
+            conversation_id,
+        )
+
+    customer_questions = [str(q) for q in (data.get("customer_questions") or [])]
+
     return ConversationAnalysisResult(
         conversation_id=conversation_id,
         sentiment=sentiment,
         sentiment_score=_clamp(data.get("sentiment_score"), -1, 1, 0.0),
         sentiment_reason=str(data.get("sentiment_reason") or ""),
-        primary_topic=str(data.get("primary_topic") or ""),
+        primary_topic=primary_topic,
         secondary_topics=[str(t) for t in (data.get("secondary_topics") or [])],
         quality_score=_clamp(data.get("quality_score"), 0, 10, 5.0),
         quality_breakdown=quality_breakdown,
@@ -85,4 +107,5 @@ def parse_ai_response(raw_content: str, conversation_id: str) -> ConversationAna
         conversion_reason=str(data.get("conversion_reason") or "") or None,
         summary=str(data.get("summary") or ""),
         key_points=[str(p) for p in (data.get("key_points") or [])],
+        customer_questions=customer_questions,
     )

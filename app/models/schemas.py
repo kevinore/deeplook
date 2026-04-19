@@ -72,6 +72,7 @@ class ConversationAnalysisResult(BaseModel):
     conversion_reason: str | None = None
     summary: str | None = None
     key_points: list[str] = Field(default_factory=list)
+    customer_questions: list[str] = Field(default_factory=list)
     # Metrics
     first_response_time_seconds: float | None = None
     avg_response_time_seconds: float | None = None
@@ -90,6 +91,8 @@ class ConversationAnalysisResult(BaseModel):
     # Meta
     ai_provider: str | None = None
     ai_model: str | None = None
+    tokens_input: int = 0
+    tokens_output: int = 0
     tokens_used: int = 0
     analysis_cost_usd: float = 0.0
 
@@ -116,6 +119,7 @@ class ClientCreateRequest(BaseModel):
     business_type: str | None = None
     business_identifiers: list[str] = Field(default_factory=list)
     phone: str | None = None
+    average_transaction_value: float | None = None
 
 
 class ClientUpdateRequest(BaseModel):
@@ -125,6 +129,7 @@ class ClientUpdateRequest(BaseModel):
     business_identifiers: list[str] | None = None
     phone: str | None = None
     plan: str | None = None
+    average_transaction_value: float | None = None
 
 
 class ClientResponse(BaseModel):
@@ -138,6 +143,7 @@ class ClientResponse(BaseModel):
     plan: str
     onboarded_via: str
     is_active: bool
+    average_transaction_value: float | None
     created_at: datetime
     updated_at: datetime
 

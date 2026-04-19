@@ -56,10 +56,12 @@ def auto_detect_business(senders: list[str]) -> tuple[str | None, bool]:
     name_senders = [s for s in counter if re.search(r"[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]", s)]
 
     if name_senders:
-        # Most frequent name-sender is assumed to be the business
-        business = max(name_senders, key=lambda s: counter[s])
+        # Most frequent name-sender is assumed to be the business.
+        # Stable: sort descending by count, then ascending by name to break ties.
+        business = sorted(name_senders, key=lambda s: (-counter[s], s))[0]
     else:
-        # Fall back to most frequent sender overall
-        business = counter.most_common(1)[0][0]
+        # Fall back to most frequent sender overall.
+        # Stable: sort descending by count, then ascending by sender to break ties.
+        business = sorted(counter.keys(), key=lambda s: (-counter[s], s))[0]
 
     return business, False

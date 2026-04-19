@@ -39,7 +39,8 @@ class AnalyticsEngine:
         user_prompt = build_user_prompt(transcript)
 
         ai_result: ConversationAnalysisResult | None = None
-        tokens_used = 0
+        tokens_input = 0
+        tokens_output = 0
         cost_usd = 0.0
         ai_provider_name = self._ai.provider_name
         ai_model_name = self._ai.model_name
@@ -48,9 +49,11 @@ class AnalyticsEngine:
             response = await self._ai.analyze(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=user_prompt,
+                temperature=0.0,
             )
             ai_result = parse_ai_response(response.content, conversation_id)
-            tokens_used = response.tokens_input + response.tokens_output
+            tokens_input = response.tokens_input
+            tokens_output = response.tokens_output
             cost_usd = response.cost_usd
 
             # Retry once if parse failed (ai_result has no sentiment)
@@ -59,9 +62,11 @@ class AnalyticsEngine:
                 retry_resp = await self._ai.analyze(
                     system_prompt=SYSTEM_PROMPT + "\n\nIMPORTANT: Return ONLY a JSON object, nothing else.",
                     user_prompt=user_prompt,
+                    temperature=0.0,
                 )
                 ai_result = parse_ai_response(retry_resp.content, conversation_id)
-                tokens_used += retry_resp.tokens_input + retry_resp.tokens_output
+                tokens_input += retry_resp.tokens_input
+                tokens_output += retry_resp.tokens_output
                 cost_usd += retry_resp.cost_usd
 
         except Exception as exc:
@@ -105,7 +110,9 @@ class AnalyticsEngine:
         ai_result.alerts = conversation_alerts
         ai_result.ai_provider = ai_provider_name
         ai_result.ai_model = ai_model_name
-        ai_result.tokens_used = tokens_used
+        ai_result.tokens_input = tokens_input
+        ai_result.tokens_output = tokens_output
+        ai_result.tokens_used = tokens_input + tokens_output
         ai_result.analysis_cost_usd = cost_usd
 
         return ai_result

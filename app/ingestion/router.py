@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, UploadFile
@@ -9,7 +10,7 @@ from app.dependencies import get_db
 from app.exceptions import ParseError, ValidationError
 from app.ingestion.parsers.txt_parser import TxtParser
 from app.ingestion.quality import aggregate_quality_reports
-from app.ingestion.validators import validate_batch, validate_upload_file
+from app.ingestion.validators import extract_txt_files, validate_batch, validate_upload_file, validate_zip_file
 from app.models.schemas import ParseQualityReport, UploadResponse
 from app.repositories.analysis_repo import AnalysisJobRepository
 from app.workers.analysis_worker import run_analysis_job
@@ -28,16 +29,16 @@ router = APIRouter(tags=["Ingestion"])
                 "multipart/form-data": {
                     "schema": {
                         "type": "object",
-                        "required": ["files", "business_name"],
+                        "required": ["file", "business_name", "client_id"],
                         "properties": {
-                            "files": {
-                                "type": "array",
-                                "items": {"type": "string", "format": "binary"},
-                                "description": "WhatsApp .txt export files to analyze",
+                            "file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "ZIP archive containing WhatsApp .txt export files",
                             },
                             "business_name": {"type": "string"},
                             "business_identifiers": {"type": "string", "default": ""},
-                            "client_id": {"type": "string", "default": "default"},
+                            "client_id": {"type": "string", "format": "uuid", "description": "UUID from the clients table"},
                         },
                     }
                 }
@@ -47,33 +48,53 @@ router = APIRouter(tags=["Ingestion"])
     },
 )
 async def upload_files(
-    files: list[UploadFile],
+    file: UploadFile,
     business_name: Annotated[str, Form()],
+    client_id: Annotated[str, Form()],
     business_identifiers: Annotated[str, Form()] = "",
-    client_id: Annotated[str, Form()] = "default",
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """
-    Upload one or more WhatsApp .txt export files for analysis.
+    Upload a ZIP archive containing WhatsApp .txt export files for analysis.
 
+    - file: ZIP file with one or more .txt chat exports
     - business_name: display name of the business
     - business_identifiers: comma-separated names/phones the business uses in chats
     - client_id: client identifier (from clients table)
     """
     identifiers = [i.strip() for i in business_identifiers.split(",") if i.strip()]
 
-    # Read all file contents first
-    file_contents: list[tuple[str, bytes]] = []
-    total_bytes = 0
-    for f in files:
-        content = await f.read()
-        file_contents.append((f.filename or "unknown.txt", content))
-        total_bytes += len(content)
+    try:
+        uuid.UUID(client_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"client_id '{client_id}' is not a valid UUID. Pass the UUID from the clients table.",
+        )
+
+    zip_content = await file.read()
+    zip_filename = file.filename or "upload.zip"
+
+    # Validate and extract
+    try:
+        validate_zip_file(zip_filename, zip_content)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.reason)
+
+    try:
+        file_contents = extract_txt_files(zip_content)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.reason)
+
+    if not file_contents:
+        raise HTTPException(status_code=422, detail="ZIP contains no .txt files.")
+
+    total_bytes = sum(len(c) for _, c in file_contents)
 
     # Validate batch-level constraints
     try:
-        validate_batch(files, total_bytes)
+        validate_batch(len(file_contents), total_bytes)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.reason)
 

@@ -62,6 +62,7 @@ async def download_report(
             conversion_reason=a.conversion_reason,
             summary=a.summary,
             key_points=a.key_points or [],
+            customer_questions=a.customer_questions or [],
             tokens_used=a.tokens_used,
             analysis_cost_usd=a.analysis_cost_usd,
             ai_provider=a.ai_provider,
@@ -95,6 +96,8 @@ async def download_report(
             business_name=business_name,
             job_id=str(job_id),
             ai_model=job.ai_model or "unknown",
+            average_transaction_value=client.average_transaction_value if client else None,
+            business_type=client.business_type if client else None,
         )
     except Exception as exc:
         logger.exception("PDF generation failed for job %s", job_id)

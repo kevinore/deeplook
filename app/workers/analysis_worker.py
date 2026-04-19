@@ -64,8 +64,23 @@ async def run_analysis_job(job_id: str, conversation_ids: list[str]) -> None:
         engine = AnalyticsEngine(ai_provider=provider)
         delay = _PROVIDER_DELAYS.get(provider.provider_name, 0.15)
 
+        # Persist provider/model on the job record so the PDF can display it.
+        await job_repo.update(
+            job_id,
+            ai_provider=provider.provider_name,
+            ai_model=provider.model_name,
+        )
+        await session.commit()
+
+        # Sort conversations chronologically so processing order is always deterministic.
+        # This ensures health scores and aggregate metrics are consistent across runs.
+        conv_records = await conv_repo.list_by_ids(conversation_ids)
+        conversation_ids = [str(c.id) for c in conv_records]
+
         for conv_id in conversation_ids:
-            # Load messages for this conversation
+            # --- Step 1: Load and build NormalizedConversation ---
+            norm_conv = None
+            result = None
             try:
                 messages = await msg_repo.list_by_conversation(conv_id)
                 if not messages:
@@ -107,55 +122,78 @@ async def run_analysis_job(job_id: str, conversation_ids: list[str]) -> None:
                     messages=norm_messages,
                     source=conv_source,
                 )
-
-                # Analyze with retries
-                result = await _analyze_with_retry(engine, norm_conv, conv_id)
-
-                # Store result
-                await analysis_repo.create(
-                    conversation_id=conv_id,
-                    analysis_job_id=job_id,
-                    sentiment=result.sentiment.value if result.sentiment else None,
-                    sentiment_score=result.sentiment_score,
-                    sentiment_reason=result.sentiment_reason,
-                    primary_topic=result.primary_topic,
-                    secondary_topics=result.secondary_topics,
-                    quality_score=result.quality_score,
-                    quality_breakdown=result.quality_breakdown.model_dump() if result.quality_breakdown else {},
-                    conversion_status=result.conversion_status.value if result.conversion_status else None,
-                    conversion_reason=result.conversion_reason,
-                    summary=result.summary,
-                    key_points=result.key_points,
-                    ai_provider=result.ai_provider,
-                    ai_model=result.ai_model,
-                    tokens_used=result.tokens_used,
-                    analysis_cost_usd=result.analysis_cost_usd,
-                    # Computed metrics
-                    first_response_time_seconds=result.first_response_time_seconds,
-                    avg_response_time_seconds=result.avg_response_time_seconds,
-                    median_response_time_seconds=result.median_response_time_seconds,
-                    p95_response_time_seconds=result.p95_response_time_seconds,
-                    unanswered_count=result.unanswered_count,
-                    total_messages=result.total_messages,
-                    inbound_count=result.inbound_count,
-                    outbound_count=result.outbound_count,
-                    duration_minutes=result.duration_minutes,
-                    response_time_by_hour=result.response_time_by_hour,
-                )
-
+            except Exception as exc:
+                logger.error(
+                    "Failed to load conversation %s in job %s: %s", conv_id, job_id, exc)
                 await job_repo.increment_processed(job_id)
-                await job_repo.add_token_usage(job_id, result.tokens_used, result.analysis_cost_usd)
                 await session.commit()
+                continue
 
+            # --- Step 2: Run AI analysis (always succeeds — returns empty result on failure) ---
+            result = await _analyze_with_retry(engine, norm_conv, conv_id)
+
+            # --- Step 3: Persist analysis result ---
+            # This must always succeed. If it fails, retry once after a rollback.
+            # A missing analysis record would silently skew aggregate metrics in the PDF.
+            stored = False
+            for store_attempt in range(2):
+                try:
+                    await analysis_repo.create(
+                        conversation_id=conv_id,
+                        analysis_job_id=job_id,
+                        sentiment=result.sentiment.value if result.sentiment else None,
+                        sentiment_score=result.sentiment_score,
+                        sentiment_reason=result.sentiment_reason,
+                        primary_topic=result.primary_topic,
+                        secondary_topics=result.secondary_topics,
+                        quality_score=result.quality_score,
+                        quality_breakdown=result.quality_breakdown.model_dump() if result.quality_breakdown else {},
+                        conversion_status=result.conversion_status.value if result.conversion_status else None,
+                        conversion_reason=result.conversion_reason,
+                        summary=result.summary,
+                        key_points=result.key_points,
+                        customer_questions=result.customer_questions,
+                        ai_provider=result.ai_provider,
+                        ai_model=result.ai_model,
+                        tokens_input=result.tokens_input,
+                        tokens_output=result.tokens_output,
+                        tokens_used=result.tokens_used,
+                        analysis_cost_usd=result.analysis_cost_usd,
+                        # Computed metrics
+                        first_response_time_seconds=result.first_response_time_seconds,
+                        avg_response_time_seconds=result.avg_response_time_seconds,
+                        median_response_time_seconds=result.median_response_time_seconds,
+                        p95_response_time_seconds=result.p95_response_time_seconds,
+                        unanswered_count=result.unanswered_count,
+                        total_messages=result.total_messages,
+                        inbound_count=result.inbound_count,
+                        outbound_count=result.outbound_count,
+                        duration_minutes=result.duration_minutes,
+                        response_time_by_hour=result.response_time_by_hour,
+                    )
+                    await job_repo.increment_processed(job_id)
+                    await job_repo.add_token_usage(job_id, result.tokens_input, result.tokens_output, result.analysis_cost_usd)
+                    await session.commit()
+                    stored = True
+                    break
+                except Exception as exc:
+                    await session.rollback()
+                    if store_attempt == 0:
+                        logger.warning(
+                            "Retrying store for conversation %s in job %s after error: %s",
+                            conv_id, job_id, exc)
+                    else:
+                        logger.error(
+                            "CRITICAL: Failed to store analysis for conversation %s in job %s "
+                            "after retry — this conversation will be MISSING from the PDF. Error: %s",
+                            conv_id, job_id, exc)
+                        await job_repo.increment_processed(job_id)
+                        await session.commit()
+
+            if stored:
                 # Rate limiting
                 if delay > 0:
                     await asyncio.sleep(delay)
-
-            except Exception as exc:
-                logger.error(
-                    "Failed to process conversation %s in job %s: %s", conv_id, job_id, exc)
-                await job_repo.increment_processed(job_id)
-                await session.commit()
 
         # Mark job complete
         await job_repo.update(job_id, status="completed", completed_at=datetime.utcnow())

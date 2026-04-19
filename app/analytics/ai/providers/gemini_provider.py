@@ -30,7 +30,7 @@ class GeminiProvider(AIProvider):
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.3,
+        temperature: float = 0.0,
         max_tokens: int = 2000,
         response_format: str = "json",
     ) -> AIResponse:
@@ -42,6 +42,7 @@ class GeminiProvider(AIProvider):
             config = types.GenerateContentConfig(
                 system_instruction=effective_system,
                 temperature=temperature,
+                top_k=1,
                 max_output_tokens=max_tokens,
                 response_mime_type="application/json" if response_format == "json" else "text/plain",
             )
@@ -69,5 +70,16 @@ class GeminiProvider(AIProvider):
             raise AIProviderError("gemini", self._model, str(exc)) from exc
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
-        pricing = _PRICING.get(self._model, {"input": 0.0, "output": 0.0})
+        pricing = _PRICING.get(self._model)
+        if pricing is None:
+            # Prefix-based fallback for preview / unreleased models
+            model_lower = self._model.lower()
+            if "flash-lite" in model_lower:
+                pricing = {"input": 0.075, "output": 0.30}
+            elif "flash" in model_lower:
+                pricing = {"input": 0.10, "output": 0.40}
+            elif "pro" in model_lower:
+                pricing = {"input": 1.25, "output": 5.00}
+            else:
+                pricing = {"input": 0.10, "output": 0.40}
         return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000

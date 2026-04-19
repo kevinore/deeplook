@@ -44,6 +44,17 @@ class ConversationRepository(BaseRepository[Conversation]):
         )
         return list(result.scalars().all())
 
+    async def list_by_ids(self, ids: list[str]) -> list[Conversation]:
+        """Return conversations for the given IDs, sorted by started_at ASC then id ASC."""
+        if not ids:
+            return []
+        result = await self.session.execute(
+            select(Conversation)
+            .where(Conversation.id.in_(ids))
+            .order_by(Conversation.started_at.asc(), Conversation.id.asc())
+        )
+        return list(result.scalars().all())
+
 
 class MessageRepository(BaseRepository[Message]):
     def __init__(self, session: AsyncSession):

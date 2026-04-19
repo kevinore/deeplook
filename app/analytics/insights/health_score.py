@@ -1,8 +1,8 @@
 """
 Business health score calculator (0-100). Rule-based, no AI.
 
-LATAM-optimized 6-component formula:
-- Response Speed        25%  First response time vs LATAM benchmarks
+Colombia MiPymes 6-component formula:
+- Response Speed        25%  First response time vs Colombia benchmarks
 - Response Coverage     15%  Unanswered message rate
 - Customer Sentiment    20%  Weighted positive/neutral/negative split
 - Conversation Quality  15%  Average quality score × 10
@@ -21,7 +21,7 @@ from app.models.schemas import ConversationAnalysisResult
 
 
 def _first_response_time_score(seconds: float | None) -> float | None:
-    """0-100 score based on first response time. LATAM benchmarks from §7 of metrics framework."""
+    """0-100 score based on first response time. Colombia MiPymes benchmarks."""
     if seconds is None:
         return None
     if seconds < 120:    # < 2 min — Excellent
@@ -56,7 +56,7 @@ def calculate_health_score(
     avg_response_time_seconds: float | None = None,  # fallback if first RT unavailable
 ) -> float:
     """
-    Compute 0-100 health score using the LATAM-optimized 6-component formula.
+    Compute 0-100 health score using the Colombia MiPymes 6-component formula.
     Missing components get zero weight so they don't drag the score toward 50.
     """
     components: list[tuple[float, float]] = []  # (score, weight)
@@ -119,3 +119,164 @@ def calculate_health_score(
 
     weighted_sum = sum(score * w for score, w in components)
     return round(weighted_sum / total_weight, 1)
+
+
+def get_health_score_breakdown(
+    results: list[ConversationAnalysisResult],
+    first_response_time_seconds: float | None = None,
+    avg_response_time_seconds: float | None = None,
+) -> list[dict]:
+    """Return the 6 health score component scores for visual breakdown display."""
+    TEAL = "#1D9E75"
+    AMBER = "#EF9F27"
+    CORAL = "#D85A30"
+
+    def _color(pct: float) -> str:
+        return TEAL if pct >= 80 else (AMBER if pct >= 50 else CORAL)
+
+    # 1. Response Speed (25%)
+    rt_input = first_response_time_seconds if first_response_time_seconds is not None else avg_response_time_seconds
+    rt_score = _first_response_time_score(rt_input)
+    if rt_score is None:
+        rt_score = 50.0
+
+    # 2. Response Coverage (15%)
+    total_msgs = sum(r.total_messages for r in results)
+    total_unanswered = sum(r.unanswered_count for r in results)
+    cov_score = _unanswered_rate_score((total_unanswered / total_msgs) * 100) if total_msgs > 0 else 50.0
+
+    # 3. Sentiment (20%)
+    sentiment_results = [r for r in results if r.sentiment is not None]
+    if sentiment_results:
+        n = len(sentiment_results)
+        positive = sum(1 for r in sentiment_results if r.sentiment == Sentiment.POSITIVE)
+        neutral = sum(1 for r in sentiment_results if r.sentiment == Sentiment.NEUTRAL)
+        sent_score = min(100.0, (positive / n * 100) + (neutral / n * 50))
+    else:
+        sent_score = 50.0
+
+    # 4. Quality (15%)
+    quality_results = [r for r in results if r.quality_score is not None]
+    qual_score = (sum(r.quality_score for r in quality_results) / len(quality_results) * 10) if quality_results else 50.0
+
+    # 5. Conversion (15%)
+    applicable = [r for r in results if r.conversion_status and r.conversion_status != ConversionStatus.NOT_APPLICABLE]
+    if applicable:
+        converted = sum(1 for r in applicable if r.conversion_status == ConversionStatus.CONVERTED)
+        conv_score = (converted / len(applicable)) * 100
+    else:
+        conv_score = 50.0
+
+    # 6. Operational Coverage (10%) — default 50
+    op_score = 50.0
+
+    dims = [
+        ("Velocidad de respuesta",    "velocidad",         rt_score,   0.25, 25),
+        ("Cobertura de respuestas",   "cobertura",         cov_score,  0.15, 15),
+        ("Sentimiento del cliente",   "sentimiento",       sent_score, 0.20, 20),
+        ("Calidad de atención",       "calidad",           qual_score, 0.15, 15),
+        ("Efectividad de conversión", "conversion",        conv_score, 0.15, 15),
+        ("Cobertura horaria",         "cobertura_horaria", op_score,   0.10, 10),
+    ]
+
+    breakdown = []
+    for name, key, score, weight, max_pts in dims:
+        pct = round(score, 1)
+        breakdown.append({
+            "name": name,
+            "key": key,
+            "raw_score": round(score, 1),
+            "weight": weight,
+            "max_points": max_pts,
+            "obtained_points": round(score * weight, 1),
+            "pct_of_max": pct,
+            "color": _color(pct),
+            "is_strength": False,
+            "is_critical": False,
+        })
+
+    # Mark best and worst
+    scores = [d["pct_of_max"] for d in breakdown]
+    max_score = max(scores)
+    min_score = min(scores)
+    for d in breakdown:
+        if d["pct_of_max"] == max_score:
+            d["is_strength"] = True
+            break
+    for d in reversed(breakdown):
+        if d["pct_of_max"] == min_score:
+            d["is_critical"] = True
+            break
+
+    return breakdown
+
+
+def explain_health_score(
+    score: float,
+    results: list[ConversationAnalysisResult],
+    first_response_time_seconds: float | None = None,
+    avg_response_time_seconds: float | None = None,
+) -> str:
+    """
+    Generate a human-readable explanation of what's driving the health score.
+    Returns a string like:
+    "Tu puntaje de salud es 52/100, principalmente afectado por:
+    • Velocidad de respuesta: 6.6h vs 5 min ideal
+    Tu fortaleza: Calidad de atención (8.0/10) está por encima del objetivo."
+    """
+    issues: list[str] = []
+    strengths: list[str] = []
+
+    # Response speed
+    rt = first_response_time_seconds if first_response_time_seconds is not None else avg_response_time_seconds
+    if rt is not None:
+        rt_score = _first_response_time_score(rt)
+        if rt_score is not None and rt_score < 50:
+            if rt >= 3600:
+                rt_str = f"{rt / 3600:.1f}h"
+            else:
+                rt_str = f"{int(rt / 60)} min"
+            issues.append(f"Velocidad de respuesta: muy por debajo del benchmark ({rt_str} vs. 5 min ideal)")
+        elif rt_score is not None and rt_score >= 85:
+            strengths.append("Velocidad de respuesta excelente (< 5 min)")
+
+    # Sentiment
+    sentiment_results = [r for r in results if r.sentiment is not None]
+    if sentiment_results:
+        n = len(sentiment_results)
+        positive = sum(1 for r in sentiment_results if r.sentiment == Sentiment.POSITIVE)
+        pos_pct = positive / n * 100
+        if pos_pct >= 70:
+            strengths.append(f"Sentimiento positivo alto ({pos_pct:.0f}%)")
+        elif pos_pct < 40:
+            issues.append(f"Alto porcentaje de conversaciones con sentimiento bajo ({pos_pct:.0f}% positivo)")
+
+    # Quality
+    quality_results = [r for r in results if r.quality_score is not None]
+    if quality_results:
+        avg_quality = sum(r.quality_score for r in quality_results) / len(quality_results)
+        if avg_quality >= 7.5:
+            strengths.append(f"Calidad de atención ({avg_quality:.1f}/10) está por encima del objetivo")
+        elif avg_quality < 5:
+            issues.append(f"Calidad de atención baja ({avg_quality:.1f}/10)")
+
+    # Conversion
+    applicable = [
+        r for r in results
+        if r.conversion_status and r.conversion_status != ConversionStatus.NOT_APPLICABLE
+    ]
+    if applicable:
+        converted = sum(1 for r in applicable if r.conversion_status == ConversionStatus.CONVERTED)
+        conv_rate = converted / len(applicable) * 100
+        if conv_rate < 15:
+            issues.append(f"Tasa de conversión: {conv_rate:.0f}% de las conversaciones resultaron en venta")
+
+    parts = [f"Tu puntaje de salud es {score:.0f}/100"]
+    if issues:
+        issue_lines = "\n• ".join(issues)
+        parts.append(f", principalmente afectado por:\n• {issue_lines}")
+    if strengths:
+        strength_lines = "; ".join(strengths)
+        parts.append(f"\nTu fortaleza: {strength_lines}.")
+
+    return "".join(parts)
