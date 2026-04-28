@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import AnalysisJob, Conversation, ConversationAnalysis, DailyMetrics
@@ -16,6 +16,28 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
             select(AnalysisJob)
             .where(AnalysisJob.client_id == client_id)
             .order_by(AnalysisJob.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def count_by_client_this_period(self, client_id: str, period_start: datetime) -> int:
+        """Count non-failed jobs since period_start (used for quota enforcement)."""
+        result = await self.session.execute(
+            select(func.count(AnalysisJob.id)).where(
+                AnalysisJob.client_id == client_id,
+                AnalysisJob.created_at >= period_start,
+                AnalysisJob.status.in_(["pending", "processing", "completed"]),
+            )
+        )
+        return result.scalar() or 0
+
+    async def list_by_clients(self, client_ids: list[str]) -> list[AnalysisJob]:
+        """Single batch query for multiple clients."""
+        if not client_ids:
+            return []
+        result = await self.session.execute(
+            select(AnalysisJob)
+            .where(AnalysisJob.client_id.in_(client_ids))
+            .order_by(AnalysisJob.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -48,6 +70,22 @@ class ConversationAnalysisRepository(BaseRepository[ConversationAnalysis]):
             .order_by(ConversationAnalysis.analyzed_at.desc())
         )
         return result.scalars().first()
+
+    async def list_by_jobs(self, job_ids: list[str]) -> dict[str, list[ConversationAnalysis]]:
+        """Single batch query for multiple jobs. Returns {job_id: [analyses]} dict."""
+        if not job_ids:
+            return {}
+        result = await self.session.execute(
+            select(ConversationAnalysis)
+            .join(Conversation, ConversationAnalysis.conversation_id == Conversation.id)
+            .where(ConversationAnalysis.analysis_job_id.in_(job_ids))
+            .order_by(Conversation.started_at.asc(), ConversationAnalysis.conversation_id.asc())
+        )
+        grouped: dict[str, list[ConversationAnalysis]] = {}
+        for analysis in result.scalars().all():
+            jid = str(analysis.analysis_job_id)
+            grouped.setdefault(jid, []).append(analysis)
+        return grouped
 
     async def list_by_job(self, job_id: str) -> list[ConversationAnalysis]:
         """

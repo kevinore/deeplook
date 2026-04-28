@@ -9,12 +9,17 @@ from app.exceptions import AIProviderError, AnalysisError, ParseError, ReportGen
 
 logger = logging.getLogger(__name__)
 
+_docs_url = "/docs" if settings.app_env != "production" else None
+_redoc_url = "/redoc" if settings.app_env != "production" else None
+_openapi_url = "/openapi.json" if settings.app_env != "production" else None
+
 app = FastAPI(
     title="DeepLook API",
     description="WhatsApp Conversation Analytics Platform",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
     openapi_tags=[
         {"name": "System", "description": "Health and system status"},
         {"name": "Clients", "description": "Client management"},
@@ -22,10 +27,12 @@ app = FastAPI(
         {"name": "Analytics", "description": "Analysis jobs and results"},
         {"name": "Delivery", "description": "Report generation and download"},
         {"name": "Dashboard", "description": "Dashboard API (Phase 2)"},
+        {"name": "WhatsApp", "description": "WAHA integration — WhatsApp connection and sync"},
+        {"name": "Billing", "description": "Plan quota and usage"},
+        {"name": "Webhooks", "description": "Public webhook receivers (Wompi payments)"},
     ],
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -92,10 +99,9 @@ async def generic_error_handler(request: Request, exc: Exception) -> JSONRespons
     )
 
 
-# Startup events
+# Startup / shutdown
 @app.on_event("startup")
 async def startup_event() -> None:
-    # Verify database connectivity
     if settings.database_url:
         try:
             from app.database import engine
@@ -107,7 +113,6 @@ async def startup_event() -> None:
     else:
         logger.warning("DATABASE_URL not set — database connectivity not verified.")
 
-    # Verify AI provider connectivity
     try:
         from app.analytics.ai.factory import create_provider
         provider = create_provider()
@@ -115,17 +120,58 @@ async def startup_event() -> None:
     except Exception as e:
         logger.warning("AI provider not available: %s", e)
 
+    if settings.clerk_jwks_url:
+        try:
+            from app.auth.clerk import warm_jwks_cache
+            await warm_jwks_cache()
+        except Exception as e:
+            logger.warning("Clerk JWKS warm-up failed: %s", e)
+    else:
+        logger.warning(
+            "CLERK_JWKS_URL not set — all protected endpoints will return 401."
+        )
 
-# Routers — imported after app is created to avoid circular imports
+    # Start WhatsApp scheduler
+    try:
+        from app.services.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        logger.error("Failed to start WhatsApp scheduler: %s", e)
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    from app.services.scheduler import stop_scheduler
+    stop_scheduler()
+
+    try:
+        from app.integrations.waha.client import get_waha_client
+        await get_waha_client().aclose()
+    except Exception:
+        pass
+
+
+# Routers
+from app.auth.dependencies import get_current_user  # noqa: E402
+from app.billing.router import router as billing_router  # noqa: E402
 from app.ingestion.router import router as ingestion_router  # noqa: E402
 from app.analytics.router import router as analytics_router  # noqa: E402
 from app.delivery.router import router as delivery_router  # noqa: E402
 from app.clients.router import router as clients_router  # noqa: E402
+from app.whatsapp.router import router as whatsapp_router  # noqa: E402
+from app.webhooks.router import router as webhooks_router  # noqa: E402
+from app.notifications.router import router as notifications_router  # noqa: E402
+from fastapi import Depends  # noqa: E402
 
+app.include_router(billing_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 app.include_router(ingestion_router, prefix="/api/v1")
-app.include_router(analytics_router, prefix="/api/v1")
-app.include_router(delivery_router, prefix="/api/v1")
-app.include_router(clients_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(delivery_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(clients_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(whatsapp_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(notifications_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+# Wompi webhook — public, signature-verified internally
+app.include_router(webhooks_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System"])

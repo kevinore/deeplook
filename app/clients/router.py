@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import CurrentUser, assert_client_owner, get_current_user
 from app.dependencies import get_db
 from app.models.schemas import ClientCreateRequest, ClientResponse, ClientUpdateRequest
 from app.repositories.client_repo import ClientRepository
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/clients", tags=["Clients"])
 async def create_client(
     body: ClientCreateRequest,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ) -> ClientResponse:
     repo = ClientRepository(db)
     existing = await repo.get_by_email(str(body.email))
@@ -27,24 +29,28 @@ async def create_client(
         business_type=body.business_type,
         business_identifiers=body.business_identifiers,
         average_transaction_value=body.average_transaction_value,
+        clerk_user_id=user.user_id,
     )
     await db.commit()
     return ClientResponse.model_validate(client)
 
 
 @router.get("", response_model=list[ClientResponse])
-async def list_clients(db: AsyncSession = Depends(get_db)) -> list[ClientResponse]:
-    repo = ClientRepository(db)
-    clients = await repo.list_active()
+async def list_clients(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> list[ClientResponse]:
+    clients = await ClientRepository(db).list_by_owner(user.user_id)
     return [ClientResponse.model_validate(c) for c in clients]
 
 
 @router.get("/{client_id}", response_model=ClientResponse)
-async def get_client(client_id: UUID, db: AsyncSession = Depends(get_db)) -> ClientResponse:
-    repo = ClientRepository(db)
-    client = await repo.get(str(client_id))
-    if not client or not client.is_active:
-        raise HTTPException(status_code=404, detail="Client not found.")
+async def get_client(
+    client_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClientResponse:
+    client = await assert_client_owner(str(client_id), user, db)
     return ClientResponse.model_validate(client)
 
 
@@ -53,10 +59,11 @@ async def update_client(
     client_id: UUID,
     body: ClientUpdateRequest,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ) -> ClientResponse:
-    repo = ClientRepository(db)
+    await assert_client_owner(str(client_id), user, db)
     updates = body.model_dump(exclude_none=True)
-    client = await repo.update(str(client_id), **updates)
+    client = await ClientRepository(db).update(str(client_id), **updates)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found.")
     await db.commit()
@@ -64,9 +71,13 @@ async def update_client(
 
 
 @router.delete("/{client_id}", status_code=204)
-async def delete_client(client_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
-    repo = ClientRepository(db)
-    success = await repo.soft_delete(str(client_id))
+async def delete_client(
+    client_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> None:
+    await assert_client_owner(str(client_id), user, db)
+    success = await ClientRepository(db).soft_delete(str(client_id))
     if not success:
         raise HTTPException(status_code=404, detail="Client not found.")
     await db.commit()

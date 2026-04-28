@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import Contact, Conversation, Message
+from app.models.database import Contact, Conversation
 from app.repositories.base import BaseRepository
 
 
@@ -54,22 +54,3 @@ class ConversationRepository(BaseRepository[Conversation]):
             .order_by(Conversation.started_at.asc(), Conversation.id.asc())
         )
         return list(result.scalars().all())
-
-
-class MessageRepository(BaseRepository[Message]):
-    def __init__(self, session: AsyncSession):
-        super().__init__(Message, session)
-
-    async def list_by_conversation(self, conversation_id: str) -> list[Message]:
-        result = await self.session.execute(
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.timestamp.asc())
-        )
-        return list(result.scalars().all())
-
-    async def bulk_create(self, messages: list[dict]) -> list[Message]:
-        instances = [Message(**m) for m in messages]
-        self.session.add_all(instances)
-        await self.session.flush()
-        return instances

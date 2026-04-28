@@ -29,6 +29,7 @@ class Client(Base):
     __tablename__ = "clients"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    clerk_user_id = Column(String(255), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     phone = Column(String(50), nullable=True)
@@ -36,6 +37,9 @@ class Client(Base):
     business_type = Column(String(100), nullable=True)
     business_identifiers = Column(JSONB, default=list, nullable=False)
     plan = Column(String(50), default="free", nullable=False)
+    plan_started_at = Column(DateTime(timezone=True), nullable=True)
+    plan_expires_at = Column(DateTime(timezone=True), nullable=True)
+    subscription_status = Column(String(30), default="inactive", nullable=False)
     average_transaction_value = Column(Float, nullable=True)
     waba_id = Column(String(100), nullable=True)
     phone_number_id = Column(String(100), nullable=True)
@@ -48,6 +52,8 @@ class Client(Base):
     conversations = relationship("Conversation", back_populates="client", cascade="all, delete-orphan")
     analysis_jobs = relationship("AnalysisJob", back_populates="client", cascade="all, delete-orphan")
     daily_metrics = relationship("DailyMetrics", back_populates="client", cascade="all, delete-orphan")
+    whatsapp_connection = relationship("WhatsAppConnection", back_populates="client", uselist=False, cascade="all, delete-orphan")
+    payment_sessions = relationship("PaymentSession", back_populates="client", cascade="all, delete-orphan")
 
 
 class Contact(Base):
@@ -89,7 +95,6 @@ class Conversation(Base):
 
     client = relationship("Client", back_populates="conversations")
     contact = relationship("Contact", back_populates="conversations")
-    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
     analyses = relationship("ConversationAnalysis", back_populates="conversation", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -98,37 +103,6 @@ class Conversation(Base):
         Index("ix_conversations_client_source", "client_id", "source"),
     )
 
-
-class Message(Base):
-    __tablename__ = "messages"
-
-    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
-    source_id = Column(String(255), nullable=True)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
-    direction = Column(String(20), nullable=False)
-    sender_phone = Column(String(50), nullable=True)
-    sender_name = Column(String(255), nullable=True)
-    message_type = Column(String(50), default="text", nullable=False)
-    text_content = Column(Text, nullable=True)
-    media_url = Column(Text, nullable=True)
-    extra_data = Column(JSONB, default=dict, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    conversation = relationship("Conversation", back_populates="messages")
-
-    __table_args__ = (
-        Index("ix_messages_conversation_id", "conversation_id"),
-        Index("ix_messages_conversation_timestamp", "conversation_id", "timestamp"),
-        # Partial unique index: only enforce uniqueness when source_id is not NULL
-        Index(
-            "uq_messages_conversation_source",
-            "conversation_id",
-            "source_id",
-            unique=True,
-            postgresql_where=text("source_id IS NOT NULL"),
-        ),
-    )
 
 
 class AnalysisJob(Base):
@@ -197,6 +171,74 @@ class ConversationAnalysis(Base):
 
     __table_args__ = (
         UniqueConstraint("conversation_id", "analysis_job_id", name="uq_analysis_conversation_job"),
+    )
+
+
+class WhatsAppConnection(Base):
+    __tablename__ = "whatsapp_connections"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, unique=True)
+    waha_session_name = Column(String(64), nullable=False, unique=True)
+    status = Column(String(30), default="STOPPED", nullable=False)
+    phone_number = Column(String(50), nullable=True)
+    push_name = Column(String(255), nullable=True)
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_sync_job_id = Column(UUID(as_uuid=False), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True)
+    sync_frequency = Column(String(20), default="monthly", nullable=False)
+    next_scheduled_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_reconnect_email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    client = relationship("Client", back_populates="whatsapp_connection")
+    last_sync_job = relationship("AnalysisJob")
+
+    __table_args__ = (
+        Index("ix_whatsapp_connections_next_sync", "next_scheduled_sync_at", "status"),
+    )
+
+
+class PaymentSession(Base):
+    __tablename__ = "payment_sessions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    plan = Column(String(50), nullable=False)
+    amount_in_cents = Column(Integer, nullable=False)
+    reference = Column(String(200), unique=True, nullable=False)
+    # pending → approved | declined | voided | error
+    status = Column(String(30), default="pending", nullable=False)
+    wompi_transaction_id = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    client = relationship("Client", back_populates="payment_sessions")
+
+    __table_args__ = (
+        Index("ix_payment_sessions_reference", "reference"),
+        Index("ix_payment_sessions_client_id", "client_id"),
+    )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    type = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    job_id = Column(UUID(as_uuid=False), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True)
+    extra_data = Column(JSONB, default=dict, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    client = relationship("Client")
+    job = relationship("AnalysisJob")
+
+    __table_args__ = (
+        Index("ix_notifications_client_created", "client_id", "created_at"),
+        Index("ix_notifications_client_unread", "client_id", "is_read"),
     )
 
 

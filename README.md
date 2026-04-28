@@ -46,12 +46,14 @@ Go to your Supabase project → **Settings → Database → Connection string**.
 > `@` → `%40`, `#` → `%23`, `%` → `%25`
 
 Example:
+
 ```
 DATABASE_URL=postgresql+asyncpg://postgres.projectref:MyP%40ssword@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 DIRECT_DATABASE_URL=postgresql+asyncpg://postgres:MyP%40ssword@db.projectref.supabase.co:5432/postgres
 ```
 
 **AI Provider** — only the active one needs a key:
+
 ```
 AI_PROVIDER=openai          # openai | anthropic | gemini | mock
 AI_MODEL=gpt-4o-mini
@@ -71,6 +73,7 @@ alembic upgrade head
 ```
 
 A successful run looks like:
+
 ```
 INFO  [alembic.runtime.migration] Running upgrade  -> abc123, initial_schema
 ```
@@ -124,18 +127,18 @@ This starts the API and runs migrations automatically on container start.
 
 ## Environment Variables Reference
 
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | Yes | Supabase pooler URL (`postgresql+asyncpg://`) |
-| `DIRECT_DATABASE_URL` | Yes (migrations) | Supabase direct URL, used by Alembic |
-| `SUPABASE_URL` | Yes | `https://YOUR_PROJECT_REF.supabase.co` |
-| `SUPABASE_KEY` | Yes | Supabase `anon` public key |
-| `AI_PROVIDER` | Yes | `openai`, `anthropic`, `gemini`, or `mock` |
-| `AI_MODEL` | Yes | e.g. `gpt-4o-mini`, `claude-3-haiku-20240307`, `gemini-2.0-flash` |
-| `OPENAI_API_KEY` | If using OpenAI | |
-| `ANTHROPIC_API_KEY` | If using Anthropic | |
-| `GEMINI_API_KEY` | If using Gemini | |
-| `API_SECRET_KEY` | Yes | Random 32-char string for internal signing |
+| Variable              | Required           | Description                                                       |
+| --------------------- | ------------------ | ----------------------------------------------------------------- |
+| `DATABASE_URL`        | Yes                | Supabase pooler URL (`postgresql+asyncpg://`)                     |
+| `DIRECT_DATABASE_URL` | Yes (migrations)   | Supabase direct URL, used by Alembic                              |
+| `SUPABASE_URL`        | Yes                | `https://YOUR_PROJECT_REF.supabase.co`                            |
+| `SUPABASE_KEY`        | Yes                | Supabase `anon` public key                                        |
+| `AI_PROVIDER`         | Yes                | `openai`, `anthropic`, `gemini`, or `mock`                        |
+| `AI_MODEL`            | Yes                | e.g. `gpt-4o-mini`, `claude-3-haiku-20240307`, `gemini-2.0-flash` |
+| `OPENAI_API_KEY`      | If using OpenAI    |                                                                   |
+| `ANTHROPIC_API_KEY`   | If using Anthropic |                                                                   |
+| `GEMINI_API_KEY`      | If using Gemini    |                                                                   |
+| `API_SECRET_KEY`      | Yes                | Random 32-char string for internal signing                        |
 
 See `.env.example` for all available variables.
 
@@ -148,6 +151,10 @@ Supported platforms: Railway, Render, DigitalOcean App Platform.
 Minimum requirements: **512MB RAM** (WeasyPrint PDF generation is memory-intensive).
 
 Set all environment variables from the table above in your platform's config. Run migrations as a one-off job before starting the server:
+
 ```bash
 alembic upgrade head
 ```
+
+const token = await window.Clerk.session.getToken();  
+ console.log(token);

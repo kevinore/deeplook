@@ -30,11 +30,43 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     max_files_per_upload: int = 100
 
+    # Clerk Authentication
+    clerk_jwks_url: str = ""
+    clerk_issuer: str = ""
+
     # Meta WhatsApp (Phase 2)
     meta_verify_token: str = ""
     meta_access_token: str = ""
     meta_phone_number_id: str = ""
     meta_app_secret: str = ""
+
+    # WAHA Integration
+    waha_base_url: str = "http://localhost:3000"
+    waha_api_key: str = ""
+    waha_webhook_secret: str = ""
+    # False = WAHA Core (only "default" session). True = WAHA PLUS (unique session per client).
+    waha_multi_session: bool = False
+    # Max DM chats (conversations) fetched per sync (0 = no limit, most-recently-active first)
+    waha_max_chats: int = 100
+
+    # Scheduler
+    enable_whatsapp_scheduler: bool = True
+    whatsapp_scheduler_interval_minutes: int = 15
+
+    # Billing gate (set to true in production to enforce plan checks)
+    enforce_billing: bool = False
+
+    # Wompi payment gateway (Colombia)
+    # Get keys from comercios.wompi.co → Mi cuenta → Llaves de autenticación
+    wompi_public_key: str = ""            # pub_stagtest_... or pub_prod_...
+    wompi_integrity_secret: str = ""      # Integridad secret (for hashing)
+    wompi_events_secret: str = ""         # Eventos secret (for webhook verification)
+    # Prices in COP centavos (1 COP = 100 centavos in Wompi)
+    wompi_price_basic_cents: int = 160000     # stagtest: ~$1,600 COP; change to 16000000 in prod
+    wompi_price_plus_cents: int = 250000     # stagtest: ~$2,500 COP; change to 25000000 in prod
+    wompi_price_enterprise_cents: int = 400000  # stagtest: ~$4,000 COP; change to 40000000 in prod
+    # Base URL for Wompi redirect after payment (your frontend)
+    wompi_redirect_base_url: str = "http://localhost:5173"
 
     # Rate limiting delays (seconds)
     openai_request_delay: float = 0.15

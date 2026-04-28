@@ -48,6 +48,11 @@ class JobStatusResponse(BaseModel):
     progress_percent: float
     error_message: str | None = None
     report_url: str | None = None
+    created_at: datetime | None = None
+    total_tokens_used: int = 0
+    total_cost_usd: float = 0.0
+    ai_provider: str | None = None
+    ai_model: str | None = None
 
 
 # --- Analysis Results ---
@@ -141,6 +146,7 @@ class ClientResponse(BaseModel):
     business_type: str | None
     business_identifiers: list
     plan: str
+    subscription_status: str
     onboarded_via: str
     is_active: bool
     average_transaction_value: float | None
@@ -159,3 +165,58 @@ class DashboardOverview(BaseModel):
     health_score: float | None = None
     sentiment_breakdown: dict[str, int] = Field(default_factory=dict)
     conversion_rate: float | None = None
+
+
+# --- Trends ---
+
+class JobTrendPoint(BaseModel):
+    job_id: str
+    date: str
+    label: str
+    health_score: float | None = None
+    total_conversations: int = 0
+    avg_response_time_min: float | None = None
+    first_response_time_min: float | None = None
+    positive_pct: float = 0.0
+    neutral_pct: float = 0.0
+    negative_pct: float = 0.0
+    conversion_rate: float | None = None
+    avg_quality_score: float | None = None
+    converted_count: int = 0
+    applicable_count: int = 0
+    top_topics: list[str] = Field(default_factory=list)
+
+
+class HealthDimension(BaseModel):
+    name: str
+    key: str
+    raw_score: float
+    weight: float
+    max_points: int
+    obtained_points: float
+    pct_of_max: float
+    color: str
+    is_strength: bool
+    is_critical: bool
+
+
+class TopicFrequency(BaseModel):
+    label: str
+    count: int
+    pct: float
+
+
+class TrendsSummary(BaseModel):
+    total_reports: int = 0
+    total_conversations: int = 0
+    latest_health_score: float | None = None
+    latest_label: str | None = None
+    avg_health_score: float | None = None
+    trend_direction: str = "stable"
+    health_breakdown: list[HealthDimension] = Field(default_factory=list)
+    top_topics: list[TopicFrequency] = Field(default_factory=list)
+
+
+class TrendsResponse(BaseModel):
+    jobs: list[JobTrendPoint] = Field(default_factory=list)
+    summary: TrendsSummary

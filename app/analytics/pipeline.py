@@ -16,7 +16,6 @@ from app.repositories.analysis_repo import AnalysisJobRepository, ConversationAn
 from app.repositories.conversation_repo import (
     ContactRepository,
     ConversationRepository,
-    MessageRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,6 @@ async def store_batch(
     """
     contact_repo = ContactRepository(session)
     conv_repo = ConversationRepository(session)
-    msg_repo = MessageRepository(session)
 
     pairs: list[tuple[NormalizedConversation, str]] = []
 
@@ -66,24 +64,9 @@ async def store_batch(
             source_filename=filename,
         )
 
-        # Bulk create messages
-        msg_dicts = [
-            {
-                "conversation_id": db_conv.id,
-                "source_id": m.source_id,
-                "timestamp": m.timestamp,
-                "direction": m.direction.value,
-                "sender_phone": m.sender_phone,
-                "sender_name": m.sender_name,
-                "message_type": m.message_type.value,
-                "text_content": m.text_content,
-                "media_url": m.media_url,
-                "extra_data": m.metadata,
-            }
-            for m in norm_conv.messages
-        ]
-        if msg_dicts:
-            await msg_repo.bulk_create(msg_dicts)
+        # Messages are NOT stored — they're passed in-memory directly to the
+        # analysis worker. Storing full message text would conflict with our
+        # privacy promise and create a large unnecessary DB footprint.
 
         pairs.append((norm_conv, db_conv.id))
 

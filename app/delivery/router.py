@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import CurrentUser, assert_client_owner, get_current_user
 from app.dependencies import get_db
 from app.exceptions import ReportGenerationError
 from app.models.schemas import AnalysisResultResponse, ConversationAnalysisResult, DashboardOverview
@@ -19,11 +20,12 @@ router = APIRouter(tags=["Delivery"])
 async def report_status(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ) -> dict:
-    repo = AnalysisJobRepository(db)
-    job = await repo.get(str(job_id))
+    job = await AnalysisJobRepository(db).get(str(job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await assert_client_owner(job.client_id, user, db)
     return {
         "job_id": str(job_id),
         "ready": job.status == "completed",
@@ -35,6 +37,7 @@ async def report_status(
 async def download_report(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ) -> Response:
     job_repo = AnalysisJobRepository(db)
     analysis_repo = ConversationAnalysisRepository(db)
@@ -42,6 +45,7 @@ async def download_report(
     job = await job_repo.get(str(job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await assert_client_owner(job.client_id, user, db)
     if job.status != "completed":
         raise HTTPException(status_code=425, detail="Report not ready yet. Check /reports/{job_id}/status")
 

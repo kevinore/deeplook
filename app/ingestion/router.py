@@ -6,6 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Qu
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.pipeline import store_batch
+from app.auth.dependencies import CurrentUser, assert_client_owner, get_current_user
+from app.billing.quotas import build_quota_status, get_billing_period
 from app.dependencies import get_db
 from app.exceptions import ParseError, ValidationError
 from app.ingestion.parsers.txt_parser import TxtParser
@@ -54,6 +56,7 @@ async def upload_files(
     business_identifiers: Annotated[str, Form()] = "",
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(get_current_user),
 ) -> UploadResponse:
     """
     Upload a ZIP archive containing WhatsApp .txt export files for analysis.
@@ -71,6 +74,33 @@ async def upload_files(
         raise HTTPException(
             status_code=422,
             detail=f"client_id '{client_id}' is not a valid UUID. Pass the UUID from the clients table.",
+        )
+
+    client = await assert_client_owner(client_id, _user, db)
+
+    # Enforce plan feature + billing-period report quota before processing the upload
+    job_repo = AnalysisJobRepository(db)
+    period_start, _ = get_billing_period(client.plan_started_at)
+    jobs_used = await job_repo.count_by_client_this_period(client_id, period_start)
+    quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
+
+    if not quota.manual_upload:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PLAN_RESTRICTION",
+                "message": "Tu plan no incluye subida manual de archivos. Actualiza a Plus o Enterprise para usar esta función.",
+            },
+        )
+
+    if quota.reports_remaining == 0:
+        renewal = quota.billing_period_end.strftime("%d/%m/%Y")
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "message": f"Has alcanzado el límite de {quota.reports_limit} reporte(s) para este período. Tu cuota se renueva el {renewal}.",
+            },
         )
 
     zip_content = await file.read()
@@ -131,16 +161,15 @@ async def upload_files(
             detail={"message": "All files failed to parse", "errors": parse_errors},
         )
 
-    # Store to DB and create analysis job
-    all_conv_ids: list[str] = []
+    # Store contacts/conversations to DB (no message text) and collect pairs
+    all_pairs: list = []
     for batch in all_batches:
         pairs = await store_batch(batch, db)
-        all_conv_ids.extend(conv_id for _, conv_id in pairs)
+        all_pairs.extend(pairs)
 
-    total_conversations = len(all_conv_ids)
+    total_conversations = len(all_pairs)
 
-    # Create analysis job
-    job_repo = AnalysisJobRepository(db)
+    # Create analysis job (job_repo was created earlier for quota check)
     job = await job_repo.create(
         client_id=client_id,
         status="pending",
@@ -149,8 +178,8 @@ async def upload_files(
     )
     await db.commit()
 
-    # Queue background task
-    background_tasks.add_task(run_analysis_job, str(job.id), all_conv_ids)
+    # Queue background task — pass NormalizedConversation objects in-memory
+    background_tasks.add_task(run_analysis_job, str(job.id), all_pairs)
 
     # Aggregate quality reports
     aggregated_quality = aggregate_quality_reports(quality_reports) if quality_reports else ParseQualityReport()

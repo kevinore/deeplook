@@ -10,192 +10,190 @@ from app.analytics.ai.factory import create_provider
 from app.analytics.engine import AnalyticsEngine
 from app.config import settings
 from app.database import async_session_factory
-# Build NormalizedConversation from DB messages
-from app.models.enums import MessageDirection, MessageType
-from app.models.normalized import NormalizedConversation, NormalizedMessage
+from app.models.normalized import NormalizedConversation
 from app.models.schemas import ConversationAnalysisResult
 from app.repositories.analysis_repo import AnalysisJobRepository, ConversationAnalysisRepository
-from app.repositories.conversation_repo import ContactRepository, ConversationRepository, MessageRepository
+from app.repositories.notification_repo import NotificationRepository
 
 logger = logging.getLogger(__name__)
 
-_PROVIDER_DELAYS = {
-    "openai": settings.openai_request_delay,
-    "anthropic": settings.anthropic_request_delay,
-    "gemini": settings.gemini_request_delay,
-    "mock": 0.0,
+_PROVIDER_CONCURRENCY = {
+    "openai": 8,
+    "anthropic": 4,
+    "gemini": 8,
+    "mock": 20,
 }
 
 _MAX_RETRIES = 3
 _RETRY_DELAYS = [2, 4, 8]
 
 
-async def run_analysis_job(job_id: str, conversation_ids: list[str]) -> None:
+async def run_analysis_job(
+    job_id: str,
+    pairs: list[tuple[NormalizedConversation, str]],
+) -> None:
     """
     Background task: analyze all conversations in a job.
+    Receives NormalizedConversation objects directly from the sync service —
+    no DB round-trip for raw messages (they are never stored).
     Stores results incrementally and handles partial failures.
     """
-    logger.info("Starting analysis job %s with %d conversations",
-                job_id, len(conversation_ids))
+    logger.info("Starting analysis job %s with %d conversations", job_id, len(pairs))
+
+    # Sort chronologically by first message timestamp for deterministic ordering.
+    pairs = sorted(pairs, key=lambda p: min((m.timestamp for m in p[0].messages), default=datetime.utcnow()))
 
     async with async_session_factory() as session:
         job_repo = AnalysisJobRepository(session)
         analysis_repo = ConversationAnalysisRepository(session)
-        msg_repo = MessageRepository(session)
-        conv_repo = ConversationRepository(session)
-        contact_repo = ContactRepository(session)
 
         # Mark job as processing
-        await job_repo.update(
-            job_id,
-            status="processing",
-            started_at=datetime.utcnow(),
-        )
+        await job_repo.update(job_id, status="processing", started_at=datetime.utcnow())
         await session.commit()
 
         try:
             provider = create_provider()
         except Exception as exc:
             logger.error("Failed to create AI provider: %s", exc)
+            job = await job_repo.get(job_id)
+            if job:
+                await NotificationRepository(session).create(
+                    client_id=str(job.client_id),
+                    type="report_failed",
+                    title="Error en el análisis",
+                    body="No se pudo iniciar el análisis de tus conversaciones. El equipo ha sido notificado.",
+                    job_id=job_id,
+                )
             await job_repo.update(job_id, status="failed", error_message=str(exc))
             await session.commit()
             return
 
         engine = AnalyticsEngine(ai_provider=provider)
-        delay = _PROVIDER_DELAYS.get(provider.provider_name, 0.15)
+        concurrency = _PROVIDER_CONCURRENCY.get(provider.provider_name, 5)
 
-        # Persist provider/model on the job record so the PDF can display it.
-        await job_repo.update(
-            job_id,
-            ai_provider=provider.provider_name,
-            ai_model=provider.model_name,
-        )
+        await job_repo.update(job_id, ai_provider=provider.provider_name, ai_model=provider.model_name)
         await session.commit()
 
-        # Sort conversations chronologically so processing order is always deterministic.
-        # This ensures health scores and aggregate metrics are consistent across runs.
-        conv_records = await conv_repo.list_by_ids(conversation_ids)
-        conversation_ids = [str(c.id) for c in conv_records]
+        try:
+            # Phase 1: Run all AI analysis calls concurrently (the slow part).
+            # DB writes are NOT done here — AsyncSession is not safe for concurrent access.
+            sem = asyncio.Semaphore(concurrency)
+            result_queue: asyncio.Queue = asyncio.Queue()
 
-        for conv_id in conversation_ids:
-            # --- Step 1: Load and build NormalizedConversation ---
-            norm_conv = None
-            result = None
-            try:
-                messages = await msg_repo.list_by_conversation(conv_id)
-                if not messages:
-                    logger.warning(
-                        "No messages found for conversation %s", conv_id)
+            async def _analyze_one(norm_conv: NormalizedConversation, conv_id: str) -> None:
+                async with sem:
+                    if not norm_conv.messages:
+                        await result_queue.put((None, conv_id))
+                        return
+                    result = await _analyze_with_retry(engine, norm_conv, conv_id)
+                    await result_queue.put((result, conv_id))
+
+            tasks = [asyncio.create_task(_analyze_one(nc, cid)) for nc, cid in pairs]
+
+            # Phase 2: Write results to DB as they arrive (sequential, progress bar stays live).
+            for _ in range(len(pairs)):
+                result, conv_id = await result_queue.get()
+
+                if result is None:
+                    logger.warning("No messages for conversation %s — skipping", conv_id)
                     await job_repo.increment_processed(job_id)
                     await session.commit()
                     continue
 
-                norm_messages = [
-                    NormalizedMessage(
-                        source_id=m.source_id,
-                        timestamp=m.timestamp,
-                        direction=MessageDirection(m.direction),
-                        sender_phone=m.sender_phone,
-                        sender_name=m.sender_name,
-                        message_type=MessageType(m.message_type),
-                        text_content=m.text_content,
-                    )
-                    for m in messages
-                ]
-
-                # Load contact info via explicit async queries (no lazy loading)
-                conv_record = await conv_repo.get(conv_id)
-                contact_phone = "unknown"
-                contact_name = None
-                conv_source = "txt_upload"
-                if conv_record:
-                    conv_source = conv_record.source or "txt_upload"
-                    if conv_record.contact_id:
-                        contact_record = await contact_repo.get(str(conv_record.contact_id))
-                        if contact_record:
-                            contact_phone = contact_record.phone
-                            contact_name = contact_record.name
-
-                norm_conv = NormalizedConversation(
-                    contact_phone=contact_phone,
-                    contact_name=contact_name,
-                    messages=norm_messages,
-                    source=conv_source,
-                )
-            except Exception as exc:
-                logger.error(
-                    "Failed to load conversation %s in job %s: %s", conv_id, job_id, exc)
-                await job_repo.increment_processed(job_id)
-                await session.commit()
-                continue
-
-            # --- Step 2: Run AI analysis (always succeeds — returns empty result on failure) ---
-            result = await _analyze_with_retry(engine, norm_conv, conv_id)
-
-            # --- Step 3: Persist analysis result ---
-            # This must always succeed. If it fails, retry once after a rollback.
-            # A missing analysis record would silently skew aggregate metrics in the PDF.
-            stored = False
-            for store_attempt in range(2):
-                try:
-                    await analysis_repo.create(
-                        conversation_id=conv_id,
-                        analysis_job_id=job_id,
-                        sentiment=result.sentiment.value if result.sentiment else None,
-                        sentiment_score=result.sentiment_score,
-                        sentiment_reason=result.sentiment_reason,
-                        primary_topic=result.primary_topic,
-                        secondary_topics=result.secondary_topics,
-                        quality_score=result.quality_score,
-                        quality_breakdown=result.quality_breakdown.model_dump() if result.quality_breakdown else {},
-                        conversion_status=result.conversion_status.value if result.conversion_status else None,
-                        conversion_reason=result.conversion_reason,
-                        summary=result.summary,
-                        key_points=result.key_points,
-                        customer_questions=result.customer_questions,
-                        ai_provider=result.ai_provider,
-                        ai_model=result.ai_model,
-                        tokens_input=result.tokens_input,
-                        tokens_output=result.tokens_output,
-                        tokens_used=result.tokens_used,
-                        analysis_cost_usd=result.analysis_cost_usd,
-                        # Computed metrics
-                        first_response_time_seconds=result.first_response_time_seconds,
-                        avg_response_time_seconds=result.avg_response_time_seconds,
-                        median_response_time_seconds=result.median_response_time_seconds,
-                        p95_response_time_seconds=result.p95_response_time_seconds,
-                        unanswered_count=result.unanswered_count,
-                        total_messages=result.total_messages,
-                        inbound_count=result.inbound_count,
-                        outbound_count=result.outbound_count,
-                        duration_minutes=result.duration_minutes,
-                        response_time_by_hour=result.response_time_by_hour,
-                    )
-                    await job_repo.increment_processed(job_id)
-                    await job_repo.add_token_usage(job_id, result.tokens_input, result.tokens_output, result.analysis_cost_usd)
-                    await session.commit()
-                    stored = True
-                    break
-                except Exception as exc:
-                    await session.rollback()
-                    if store_attempt == 0:
-                        logger.warning(
-                            "Retrying store for conversation %s in job %s after error: %s",
-                            conv_id, job_id, exc)
-                    else:
-                        logger.error(
-                            "CRITICAL: Failed to store analysis for conversation %s in job %s "
-                            "after retry — this conversation will be MISSING from the PDF. Error: %s",
-                            conv_id, job_id, exc)
+                for store_attempt in range(2):
+                    try:
+                        await analysis_repo.create(
+                            conversation_id=conv_id,
+                            analysis_job_id=job_id,
+                            sentiment=result.sentiment.value if result.sentiment else None,
+                            sentiment_score=result.sentiment_score,
+                            sentiment_reason=result.sentiment_reason,
+                            primary_topic=result.primary_topic,
+                            secondary_topics=result.secondary_topics,
+                            quality_score=result.quality_score,
+                            quality_breakdown=result.quality_breakdown.model_dump() if result.quality_breakdown else {},
+                            conversion_status=result.conversion_status.value if result.conversion_status else None,
+                            conversion_reason=result.conversion_reason,
+                            summary=result.summary,
+                            key_points=result.key_points,
+                            customer_questions=result.customer_questions,
+                            ai_provider=result.ai_provider,
+                            ai_model=result.ai_model,
+                            tokens_input=result.tokens_input,
+                            tokens_output=result.tokens_output,
+                            tokens_used=result.tokens_used,
+                            analysis_cost_usd=result.analysis_cost_usd,
+                            first_response_time_seconds=result.first_response_time_seconds,
+                            avg_response_time_seconds=result.avg_response_time_seconds,
+                            median_response_time_seconds=result.median_response_time_seconds,
+                            p95_response_time_seconds=result.p95_response_time_seconds,
+                            unanswered_count=result.unanswered_count,
+                            total_messages=result.total_messages,
+                            inbound_count=result.inbound_count,
+                            outbound_count=result.outbound_count,
+                            duration_minutes=result.duration_minutes,
+                            response_time_by_hour=result.response_time_by_hour,
+                        )
                         await job_repo.increment_processed(job_id)
+                        await job_repo.add_token_usage(job_id, result.tokens_input, result.tokens_output, result.analysis_cost_usd)
                         await session.commit()
+                        break
+                    except Exception as exc:
+                        try:
+                            await session.rollback()
+                        except Exception:
+                            pass
+                        if store_attempt == 0:
+                            logger.warning("Retrying store for conversation %s in job %s: %s", conv_id, job_id, exc)
+                        else:
+                            logger.error(
+                                "CRITICAL: Failed to store analysis for conversation %s in job %s "
+                                "after retry — will be MISSING from the PDF. Error: %s",
+                                conv_id, job_id, exc)
+                            try:
+                                await job_repo.increment_processed(job_id)
+                                await session.commit()
+                            except Exception:
+                                pass
 
-            if stored:
-                # Rate limiting
-                if delay > 0:
-                    await asyncio.sleep(delay)
+            # Ensure all tasks are awaited (they are complete once queue is drained)
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Mark job complete
+        except Exception as loop_exc:
+            logger.error("Unexpected error in analysis loop for job %s: %s", job_id, loop_exc, exc_info=True)
+            try:
+                await session.rollback()
+                job = await job_repo.get(job_id)
+                if job:
+                    await NotificationRepository(session).create(
+                        client_id=str(job.client_id),
+                        type="report_failed",
+                        title="Error en el análisis",
+                        body="El análisis se interrumpió inesperadamente. El equipo ha sido notificado.",
+                        job_id=job_id,
+                    )
+                await job_repo.update(job_id, status="failed", error_message=str(loop_exc))
+                await session.commit()
+            except Exception:
+                pass
+            return
+
+        # Mark job complete and notify the user
+        count = len(pairs)
+        job = await job_repo.get(job_id)
+        if job:
+            body = (
+                f"Se analizó {count} conversación. Revisa tus reportes." if count == 1
+                else f"Se analizaron {count} conversaciones. Revisa tus reportes."
+            )
+            await NotificationRepository(session).create(
+                client_id=str(job.client_id),
+                type="report_ready",
+                title="Tu reporte está listo",
+                body=body,
+                job_id=job_id,
+                extra_data={"conversation_count": count},
+            )
         await job_repo.update(job_id, status="completed", completed_at=datetime.utcnow())
         await session.commit()
         logger.info("Analysis job %s completed.", job_id)
