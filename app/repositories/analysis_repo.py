@@ -3,7 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import AnalysisJob, Conversation, ConversationAnalysis, DailyMetrics
+from app.models.database import AnalysisJob, Contact, Conversation, ConversationAnalysis, DailyMetrics
 from app.repositories.base import BaseRepository
 
 
@@ -100,6 +100,24 @@ class ConversationAnalysisRepository(BaseRepository[ConversationAnalysis]):
             .order_by(Conversation.started_at.asc(), ConversationAnalysis.conversation_id.asc())
         )
         return list(result.scalars().all())
+
+    async def list_by_job_with_contact(
+        self, job_id: str
+    ) -> list[tuple[ConversationAnalysis, Conversation, Contact]]:
+        """
+        Return (analysis, conversation, contact) tuples for the job, in chronological
+        order. Used by the PDF generator to:
+          • Aggregate "sin responder" at the chat level (dedupe sessions per contact)
+          • Render contact references on the "Conversaciones Destacadas" cards
+        """
+        result = await self.session.execute(
+            select(ConversationAnalysis, Conversation, Contact)
+            .join(Conversation, ConversationAnalysis.conversation_id == Conversation.id)
+            .join(Contact, Conversation.contact_id == Contact.id)
+            .where(ConversationAnalysis.analysis_job_id == job_id)
+            .order_by(Conversation.started_at.asc(), ConversationAnalysis.conversation_id.asc())
+        )
+        return list(result.all())
 
 
 class DailyMetricsRepository(BaseRepository[DailyMetrics]):

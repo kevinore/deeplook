@@ -43,11 +43,13 @@ def generate_alerts(
         else:
             consecutive_neg = 0
 
-    # Unanswered messages
-    total_unanswered = sum(r.unanswered_count for r in results)
-    if total_unanswered > 0:
+    # Unanswered conversations (chat-level: each unanswered chat counts as 1)
+    unanswered_convs = sum(r.unanswered_count for r in results)
+    if unanswered_convs > 0:
+        plural = unanswered_convs != 1
         alerts.append(
-            f"⚠️ {total_unanswered} mensaje{'s' if total_unanswered != 1 else ''} sin respuesta detectado{'s' if total_unanswered != 1 else ''}."
+            f"⚠️ {unanswered_convs} conversaci{'ones' if plural else 'ón'} "
+            f"sin respuesta detectada{'s' if plural else ''}."
         )
 
     return alerts

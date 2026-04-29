@@ -2,12 +2,14 @@
 Business health score calculator (0-100). Rule-based, no AI.
 
 Colombia MiPymes 6-component formula:
-- Response Speed        25%  First response time vs Colombia benchmarks
-- Response Coverage     15%  Unanswered message rate
-- Customer Sentiment    20%  Weighted positive/neutral/negative split
-- Conversation Quality  15%  Average quality score × 10
+- Response Speed         25%  First response time vs Colombia benchmarks
+- Response Coverage      15%  % of CONVERSATIONS that ended unanswered (chat-level, not message-level)
+- Customer Sentiment     20%  Weighted positive/neutral/negative split
+- Conversation Quality   15%  Average quality score × 10
 - Conversion Effectiveness 15%  Conversion rate as percentage
-- Operational Coverage  10%  Default 50 (can't detect from .txt exports)
+- Operational Coverage   10%  % of in-business-hours customer messages answered within 1 h
+                              (computed deterministically from message timestamps; falls back to 50
+                              when no in-hours messages were observed)
 
 Score interpretation:
 85-100  Excelente — highly effective WhatsApp operation
@@ -38,7 +40,7 @@ def _first_response_time_score(seconds: float | None) -> float | None:
 
 
 def _unanswered_rate_score(rate_pct: float) -> float:
-    """0-100 score based on percentage of unanswered messages."""
+    """0-100 score based on percentage of conversations that ended unanswered."""
     if rate_pct == 0:
         return 100.0
     if rate_pct < 5:
@@ -69,11 +71,13 @@ def calculate_health_score(
     else:
         components.append((50.0, 0.0))
 
-    # 2. Response Coverage (15%) — percentage of messages that went unanswered
-    total_msgs = sum(r.total_messages for r in results)
-    total_unanswered = sum(r.unanswered_count for r in results)
-    if total_msgs > 0:
-        unanswered_rate_pct = (total_unanswered / total_msgs) * 100
+    # 2. Response Coverage (15%) — % of CONVERSATIONS that ended without a business reply
+    # `unanswered_count` is now 0|1 per conversation, so the sum equals the
+    # number of unanswered conversations and the denominator is len(results).
+    total_convs = len(results)
+    unanswered_convs = sum(r.unanswered_count for r in results)
+    if total_convs > 0:
+        unanswered_rate_pct = (unanswered_convs / total_convs) * 100
         coverage_score = _unanswered_rate_score(unanswered_rate_pct)
         components.append((coverage_score, 0.15))
     else:
@@ -110,8 +114,18 @@ def calculate_health_score(
     else:
         components.append((50.0, 0.0))
 
-    # 6. Operational Coverage (10%) — default 50, can't detect from .txt exports
-    components.append((50.0, 0.10))
+    # 6. Operational Coverage (10%) — % of in-hours customer messages answered within 1h.
+    # Computed per-conversation in `ack_metrics.operational_coverage_score`; here we
+    # average across results that produced a value. None ⇒ no in-hours samples in
+    # that chat, so it doesn't vote.
+    op_scores = [r.operational_coverage_score for r in results if r.operational_coverage_score is not None]
+    if op_scores:
+        op_score = sum(op_scores) / len(op_scores)
+        components.append((op_score, 0.10))
+    else:
+        # No in-hours customer messages anywhere — give the component zero weight
+        # rather than a misleading hardcoded 50.
+        components.append((50.0, 0.0))
 
     total_weight = sum(w for _, w in components)
     if total_weight == 0:
@@ -140,10 +154,10 @@ def get_health_score_breakdown(
     if rt_score is None:
         rt_score = 50.0
 
-    # 2. Response Coverage (15%)
-    total_msgs = sum(r.total_messages for r in results)
-    total_unanswered = sum(r.unanswered_count for r in results)
-    cov_score = _unanswered_rate_score((total_unanswered / total_msgs) * 100) if total_msgs > 0 else 50.0
+    # 2. Response Coverage (15%) — chat-level
+    total_convs = len(results)
+    unanswered_convs = sum(r.unanswered_count for r in results)
+    cov_score = _unanswered_rate_score((unanswered_convs / total_convs) * 100) if total_convs > 0 else 50.0
 
     # 3. Sentiment (20%)
     sentiment_results = [r for r in results if r.sentiment is not None]
@@ -167,8 +181,9 @@ def get_health_score_breakdown(
     else:
         conv_score = 50.0
 
-    # 6. Operational Coverage (10%) — default 50
-    op_score = 50.0
+    # 6. Operational Coverage (10%) — average per-conversation score, falls back to 50
+    op_scores = [r.operational_coverage_score for r in results if r.operational_coverage_score is not None]
+    op_score = sum(op_scores) / len(op_scores) if op_scores else 50.0
 
     dims = [
         ("Velocidad de respuesta",    "velocidad",         rt_score,   0.25, 25),

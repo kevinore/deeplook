@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     waha_multi_session: bool = False
     # Max DM chats (conversations) fetched per sync (0 = no limit, most-recently-active first)
     waha_max_chats: int = 100
+    # When True, reject connections from personal WhatsApp accounts — only WhatsApp Business allowed.
+    # Set WAHA_REQUIRE_BUSINESS_ACCOUNT=false to allow personal accounts (useful for dev/testing).
+    waha_require_business_account: bool = True
 
     # Scheduler
     enable_whatsapp_scheduler: bool = True

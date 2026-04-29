@@ -49,12 +49,18 @@ async def download_report(
     if job.status != "completed":
         raise HTTPException(status_code=425, detail="Report not ready yet. Check /reports/{job_id}/status")
 
-    analyses = await analysis_repo.list_by_job(str(job_id))
+    # Load analyses joined with conversation + contact so the PDF can:
+    #   • Dedupe sessions per chat for the "Sin Responder" KPI
+    #   • Render readable references on "Conversaciones Destacadas" cards
+    rows = await analysis_repo.list_by_job_with_contact(str(job_id))
 
     from app.models.schemas import QualityBreakdown
     results = [
         ConversationAnalysisResult(
             conversation_id=a.conversation_id,
+            contact_phone=contact.phone if contact else None,
+            contact_name=contact.name if contact else None,
+            started_at=conv.started_at if conv else None,
             sentiment=a.sentiment,
             sentiment_score=a.sentiment_score,
             sentiment_reason=a.sentiment_reason,
@@ -77,13 +83,24 @@ async def download_report(
             median_response_time_seconds=a.median_response_time_seconds,
             p95_response_time_seconds=a.p95_response_time_seconds,
             unanswered_count=a.unanswered_count or 0,
+            trailing_inbound_messages=getattr(a, "trailing_inbound_messages", 0) or 0,
             total_messages=a.total_messages or 0,
             inbound_count=a.inbound_count or 0,
             outbound_count=a.outbound_count or 0,
             duration_minutes=a.duration_minutes,
             response_time_by_hour=a.response_time_by_hour,
+            # Deterministic ack-based metrics
+            delivery_rate=getattr(a, "delivery_rate", None),
+            read_rate=getattr(a, "read_rate", None),
+            is_ghosted=bool(getattr(a, "is_ghosted", False)),
+            last_business_msg_ack=getattr(a, "last_business_msg_ack", None),
+            operational_coverage_score=getattr(a, "operational_coverage_score", None),
+            out_of_hours_inbound_pct=getattr(a, "out_of_hours_inbound_pct", None),
+            wa_unread_count=getattr(a, "wa_unread_count", None),
+            wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
+            wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
         )
-        for a in analyses
+        for (a, conv, contact) in rows
     ]
 
     try:
@@ -95,6 +112,42 @@ async def download_report(
         client = await client_repo.get(job.client_id)
         business_name = client.business_name if client else "Business"
 
+        # F1 — fetch the immediately previous COMPLETED job for this client so
+        # the PDF can render a "vs reporte anterior" comparison block. We pick
+        # the most recent completed job whose created_at < this job's created_at.
+        previous_results: list[ConversationAnalysisResult] = []
+        previous_job_created_at = None
+        try:
+            sibling_jobs = await job_repo.list_by_client(str(job.client_id))
+            prev_job = next(
+                (j for j in sibling_jobs
+                 if j.status == "completed"
+                 and j.id != job.id
+                 and j.created_at < job.created_at),
+                None,
+            )
+            if prev_job is not None:
+                prev_analyses = await analysis_repo.list_by_job(str(prev_job.id))
+                previous_results = [
+                    ConversationAnalysisResult(
+                        conversation_id=a.conversation_id,
+                        sentiment=a.sentiment,
+                        sentiment_score=a.sentiment_score,
+                        primary_topic=a.primary_topic,
+                        quality_score=a.quality_score,
+                        conversion_status=a.conversion_status,
+                        first_response_time_seconds=a.first_response_time_seconds,
+                        avg_response_time_seconds=a.avg_response_time_seconds,
+                        unanswered_count=a.unanswered_count or 0,
+                        total_messages=a.total_messages or 0,
+                        operational_coverage_score=getattr(a, "operational_coverage_score", None),
+                    )
+                    for a in prev_analyses
+                ]
+                previous_job_created_at = prev_job.created_at
+        except Exception:
+            logger.warning("Could not load previous job for comparison (job=%s)", job_id, exc_info=True)
+
         pdf_bytes = generate_pdf_report(
             results=results,
             business_name=business_name,
@@ -102,6 +155,8 @@ async def download_report(
             ai_model=job.ai_model or "unknown",
             average_transaction_value=client.average_transaction_value if client else None,
             business_type=client.business_type if client else None,
+            previous_results=previous_results,
+            previous_job_created_at=previous_job_created_at,
         )
     except Exception as exc:
         logger.exception("PDF generation failed for job %s", job_id)

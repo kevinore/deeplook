@@ -78,6 +78,68 @@ class WahaClient:
         self._check(r)
         return "data:image/png;base64," + base64.b64encode(r.content).decode()
 
+    async def check_is_business_account(self, name: str, own_jid: str) -> bool | None:
+        """
+        Returns True if the connected WhatsApp account is a Business account,
+        False if it's definitively a personal account, or None if every probe
+        failed and the result is genuinely undetermined.
+
+        Callers with WAHA_REQUIRE_BUSINESS_ACCOUNT=true should treat None as
+        a block (fail-safe): if we can't prove it's Business, we don't allow it.
+
+        Strategy (all probes are read-only, zero ban risk):
+          1. /api/{session}/contacts/{jid}              → isBusiness / isEnterprise flags
+          2. /api/{session}/contacts/{jid}/about        → businessProfile presence
+          3. /api/{session}/contacts/{jid}/check-exists → type/isBusiness on newer WAHA
+          4. /api/{session}/contacts/check-exists?phone → same via query param variant
+        """
+        probes = [
+            f"/api/{name}/contacts/{own_jid}",
+            f"/api/{name}/contacts/{own_jid}/about",
+            f"/api/{name}/contacts/{own_jid}/business-profile",
+        ]
+
+        # Normalise JID → bare phone for the query-param variant
+        phone = own_jid.split("@")[0]
+        probes.append(f"/api/{name}/contacts/check-exists?phone={phone}")
+
+        for url in probes:
+            try:
+                r = await self._client.get(url)
+                logger.debug(
+                    "check_is_business [session=%s jid=%s] %s → %s",
+                    name, own_jid, url, r.status_code,
+                )
+                if r.status_code not in (200, 201):
+                    continue
+                data = r.json()
+                if not isinstance(data, dict):
+                    continue
+
+                logger.debug("check_is_business response: %s", data)
+
+                # Any of these fields being truthy = Business confirmed
+                if (data.get("isBusiness")
+                        or data.get("isEnterprise")
+                        or data.get("businessProfile")
+                        or data.get("type") == "business"):
+                    return True
+
+                # Explicit False only when the key is present and falsy
+                # (absence means the endpoint just doesn't carry that info)
+                if "isBusiness" in data:
+                    return False
+
+            except Exception as exc:
+                logger.debug("check_is_business probe %s failed: %s", url, exc)
+
+        logger.warning(
+            "check_is_business: could not determine account type for session=%s jid=%s "
+            "(all probes returned no isBusiness flag). Returning None — caller decides.",
+            name, own_jid,
+        )
+        return None
+
     async def list_chats(self, name: str, limit: int = 1000, offset: int = 0) -> list[WahaChatOverview]:
         r = await self._client.get(
             f"/api/{name}/chats",

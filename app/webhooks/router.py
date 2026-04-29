@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.billing.wompi import verify_event_signature
 from app.dependencies import get_db
 from app.repositories.client_repo import ClientRepository
+from app.repositories.notification_repo import NotificationRepository
 from app.repositories.payment_repo import PaymentSessionRepository
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
@@ -61,6 +62,16 @@ async def wompi_webhook(request: Request, db: AsyncSession = Depends(get_db)) ->
         status=new_session_status,
         wompi_transaction_id=wompi_tx_id,
     )
+
+    if status not in _APPROVED_STATUSES and status:
+        # Payment failed — notify the user so they can retry, even if they've left the page.
+        await NotificationRepository(db).create(
+            client_id=str(session.client_id),
+            type="payment_declined",
+            title="Pago rechazado",
+            body="Tu pago no fue procesado. Puedes intentarlo con otro método desde Configuración.",
+            extra_data={"reference": reference, "wompi_status": status},
+        )
 
     if status in _APPROVED_STATUSES:
         now = datetime.now(tz=timezone.utc)

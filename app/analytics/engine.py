@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from app.analytics.ai.cost_tracker import CostTracker
 from app.analytics.ai.provider import AIProvider
-from app.analytics.ai.prompts.combined import SYSTEM_PROMPT, build_user_prompt
+from app.analytics.ai.prompts.combined import build_system_prompt, build_user_prompt
 from app.analytics.ai.prompts.formatter import format_conversation
 from app.analytics.ai.prompts.response_parser import parse_ai_response
 from app.analytics.insights import alerts as alerts_module
@@ -28,15 +28,26 @@ class AnalyticsEngine:
         self._ai = ai_provider
 
     async def analyze_conversation(
-        self, conv: NormalizedConversation, conversation_id: str = ""
+        self,
+        conv: NormalizedConversation,
+        conversation_id: str = "",
+        business_type: str | None = None,
     ) -> ConversationAnalysisResult:
-        """Analyze a single conversation end-to-end."""
+        """
+        Analyze a single conversation end-to-end.
+
+        `business_type`, when provided, is forwarded to the prompt so the AI
+        adapts the closed topic taxonomy (P3) and renders into the deterministic
+        facts block (P2).
+        """
         # Step 1: Metrics (pure math)
         stats = conv_stats.conversation_stats(conv)
 
-        # Step 2: AI analysis
+        # Step 2: AI analysis — system prompt parametrised by business_type;
+        # user prompt prepended with deterministic facts block.
+        system_prompt = build_system_prompt(business_type)
         transcript = format_conversation(conv)
-        user_prompt = build_user_prompt(transcript)
+        user_prompt = build_user_prompt(transcript, stats=stats, business_type=business_type)
 
         ai_result: ConversationAnalysisResult | None = None
         tokens_input = 0
@@ -47,7 +58,7 @@ class AnalyticsEngine:
 
         try:
             response = await self._ai.analyze(
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.0,
             )
@@ -60,7 +71,7 @@ class AnalyticsEngine:
             if ai_result.sentiment is None and response.content.strip():
                 logger.warning("AI parse retry for conversation %s", conversation_id)
                 retry_resp = await self._ai.analyze(
-                    system_prompt=SYSTEM_PROMPT + "\n\nIMPORTANT: Return ONLY a JSON object, nothing else.",
+                    system_prompt=system_prompt + "\n\nIMPORTANT: Return ONLY a JSON object, nothing else.",
                     user_prompt=user_prompt,
                     temperature=0.0,
                 )
@@ -95,16 +106,31 @@ class AnalyticsEngine:
 
         # Merge everything
         ai_result.conversation_id = conversation_id
+        # Response-time metrics
         ai_result.first_response_time_seconds = first_rt
         ai_result.avg_response_time_seconds = stats.get("avg_response_time_seconds")
         ai_result.median_response_time_seconds = stats.get("median_response_time_seconds")
         ai_result.p95_response_time_seconds = stats.get("p95_response_time_seconds")
         ai_result.unanswered_count = stats.get("unanswered_count", 0)
+        ai_result.trailing_inbound_messages = stats.get("trailing_inbound_messages", 0)
         ai_result.total_messages = stats.get("total_messages", 0)
         ai_result.inbound_count = direction_counts.get("inbound", 0)
         ai_result.outbound_count = direction_counts.get("outbound", 0)
         ai_result.duration_minutes = stats.get("duration_minutes")
         ai_result.response_time_by_hour = rt_by_hour
+        # Deterministic ack-derived metrics
+        ai_result.delivery_rate = stats.get("delivery_rate")
+        ai_result.read_rate = stats.get("read_rate")
+        ai_result.is_ghosted = stats.get("is_ghosted", False)
+        ai_result.last_business_msg_ack = stats.get("last_business_msg_ack")
+        # Operational coverage
+        ai_result.operational_coverage_score = stats.get("operational_coverage_score")
+        ai_result.out_of_hours_inbound_pct = stats.get("out_of_hours_inbound_pct")
+        # WAHA chat metadata cross-checks
+        ai_result.wa_unread_count = stats.get("wa_unread_count")
+        ai_result.wa_is_muted = stats.get("wa_is_muted", False)
+        ai_result.wa_is_archived = stats.get("wa_is_archived", False)
+        # Health / insights / meta
         ai_result.health_score = health
         ai_result.recommendations = recs
         ai_result.alerts = conversation_alerts

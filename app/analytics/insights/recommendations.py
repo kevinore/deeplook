@@ -67,13 +67,16 @@ def generate_recommendations(
             + revenue_note
         )
 
-    # 2. Unanswered messages — every unanswered message is a lost sale
-    total_unanswered = sum(r.unanswered_count for r in results)
-    if total_unanswered > 0:
+    # 2. Unanswered conversations — every unanswered chat is a lost sale.
+    # `unanswered_count` is now 0|1 per conversation (chat-level), so the sum
+    # equals the number of conversations awaiting a business reply.
+    unanswered_convs = sum(r.unanswered_count for r in results)
+    if unanswered_convs > 0:
+        plural = unanswered_convs != 1
         recs.append(
-            f"Tienes {total_unanswered} mensaje{'s' if total_unanswered != 1 else ''} de "
-            f"cliente{'s' if total_unanswered != 1 else ''} sin responder. "
-            f"Cada mensaje sin respuesta es una venta potencial perdida."
+            f"Tienes {unanswered_convs} conversaci{'ones' if plural else 'ón'} sin responder. "
+            f"Cada conversación abandonada es una venta potencial perdida — "
+            f"prioriza responderlas hoy mismo."
         )
 
     # 3. Negative sentiment — systemic problem if >20%
@@ -120,7 +123,9 @@ def generate_recommendations(
                 f"Las principales razones de pérdida son: {reasons_str or 'sin datos específicos'}."
             )
 
-    # 6. Quality — low completeness is the most actionable dimension
+    # 6. Quality — low completeness is the most actionable dimension.
+    # speed_perception is no longer evaluated by the AI (timestamps cover that
+    # side of "speed" deterministically). Only the 3 active dimensions surface here.
     with_quality = [r for r in results if r.quality_score is not None]
     if with_quality:
         avg_quality = sum(r.quality_score for r in with_quality) / len(with_quality)
@@ -130,7 +135,6 @@ def generate_recommendations(
                 "helpfulness": "Utilidad",
                 "tone": "Tono",
                 "completeness": "Completitud",
-                "speed_perception": "Velocidad",
             }
             for dim, label in dim_labels.items():
                 dim_scores = [getattr(r.quality_breakdown, dim) for r in with_quality if r.quality_breakdown]
@@ -170,11 +174,12 @@ def generate_headline_recommendations(
         human = _fmt_seconds(avg_response_time_seconds)
         headlines.append(f"Reduce tu tiempo promedio de respuesta de {human} — el objetivo es menos de 5 minutos.")
 
-    total_unanswered = sum(r.unanswered_count for r in results)
-    if total_unanswered > 0:
+    unanswered_convs = sum(r.unanswered_count for r in results)
+    if unanswered_convs > 0:
+        plural = unanswered_convs != 1
         headlines.append(
-            f"Responde los {total_unanswered} mensaje{'s' if total_unanswered != 1 else ''} sin contestar — "
-            f"cada uno es una venta potencial perdida."
+            f"Responde las {unanswered_convs} conversaci{'ones' if plural else 'ón'} sin contestar — "
+            f"cada una es una venta potencial perdida."
         )
 
     all_topics = [r.primary_topic for r in results if r.primary_topic]
@@ -231,10 +236,11 @@ def generate_next_steps(
                 "Ve a Configuración → Herramientas para la empresa → Respuestas rápidas."
             )
     else:
-        total_unanswered = sum(r.unanswered_count for r in results)
-        if total_unanswered > 0:
+        unanswered_convs = sum(r.unanswered_count for r in results)
+        if unanswered_convs > 0:
+            plural = unanswered_convs != 1
             steps.append(
-                f"Revisa y responde los {total_unanswered} mensajes sin contestar. "
+                f"Revisa y responde las {unanswered_convs} conversaci{'ones' if plural else 'ón'} sin contestar. "
                 f"Activa las notificaciones en WhatsApp Business para no perder nuevas consultas."
             )
         else:

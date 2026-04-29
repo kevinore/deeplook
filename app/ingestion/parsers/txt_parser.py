@@ -8,6 +8,11 @@ from app.ingestion.parsers.txt_assembler import assemble_messages
 from app.ingestion.parsers.txt_classifier import LineType, classify_lines
 from app.ingestion.parsers.txt_direction import auto_detect_business, detect_direction
 from app.ingestion.parsers.txt_media import process_media_content
+from app.ingestion.sessionizer import (
+    DEFAULT_SESSION_GAP_HOURS,
+    filter_junk,
+    split_into_sessions,
+)
 from app.models.enums import MessageDirection, MessageType
 from app.models.normalized import NormalizedBatch, NormalizedConversation, NormalizedMessage
 from app.models.schemas import ParseQualityReport
@@ -118,6 +123,13 @@ class TxtParser(BaseParser):
             source="txt_upload",
         )
 
+        # Split a single .txt export into independent sessions wherever there's
+        # a quiet gap >= DEFAULT_SESSION_GAP_HOURS. The same customer's chat
+        # exported across months is one big file but several distinct buying
+        # journeys — each gets its own analysis.
+        sessions = split_into_sessions(conversation, gap_hours=DEFAULT_SESSION_GAP_HOURS)
+        sessions_kept = filter_junk(sessions, min_messages=2)
+
         # Build quality report
         unparseable_lines = sum(
             1 for c in classified
@@ -147,8 +159,14 @@ class TxtParser(BaseParser):
         batch = NormalizedBatch(
             client_id=client_id,
             source="txt_upload",
-            conversations=[conversation],
-            raw_metadata={"filename": filename, "quality_report": quality.model_dump()},
+            conversations=sessions_kept,
+            raw_metadata={
+                "filename": filename,
+                "quality_report": quality.model_dump(),
+                "sessions_produced": len(sessions),
+                "sessions_dropped_junk": len(sessions) - len(sessions_kept),
+                "session_gap_hours": DEFAULT_SESSION_GAP_HOURS,
+            },
         )
         return batch
 

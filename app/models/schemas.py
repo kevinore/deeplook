@@ -58,14 +58,32 @@ class JobStatusResponse(BaseModel):
 # --- Analysis Results ---
 
 class QualityBreakdown(BaseModel):
+    """
+    Quality dimensions evaluated by the AI on a 0–10 scale.
+
+    `speed_perception` is DEPRECATED but retained for backward compatibility with
+    existing DB rows. The current prompt no longer asks the AI for it; instead,
+    the deterministic `first_response_time_seconds` is the single source of truth
+    for response speed (Health Score's "Response Speed" component).
+
+    `quality_score` (the aggregate the rest of the system uses) is the average of
+    helpfulness/tone/completeness only — see `response_parser.parse_ai_response`.
+    """
     helpfulness: float = 5.0
     tone: float = 5.0
     completeness: float = 5.0
-    speed_perception: float = 5.0
+    speed_perception: float = 5.0  # DEPRECATED — kept for schema/DB compat; not averaged anymore
 
 
 class ConversationAnalysisResult(BaseModel):
     conversation_id: str
+    # Identity fields (in-memory only — populated by the delivery layer when
+    # loading rows for the PDF; not persisted on this model). Used to:
+    #   • Deduplicate sessions of the same chat for the "Sin Responder" KPI
+    #   • Render readable references on the conversation cards in the PDF
+    contact_phone: str | None = None
+    contact_name: str | None = None
+    started_at: datetime | None = None
     sentiment: Sentiment | None = None
     sentiment_score: float | None = None
     sentiment_reason: str | None = None
@@ -78,17 +96,34 @@ class ConversationAnalysisResult(BaseModel):
     summary: str | None = None
     key_points: list[str] = Field(default_factory=list)
     customer_questions: list[str] = Field(default_factory=list)
-    # Metrics
+    # Metrics — response time / volume
     first_response_time_seconds: float | None = None
     avg_response_time_seconds: float | None = None
     median_response_time_seconds: float | None = None
     p95_response_time_seconds: float | None = None
+    # `unanswered_count` is now boolean-per-conversation (0|1) — sum across results
+    # equals the number of conversations awaiting a business reply.
     unanswered_count: int = 0
+    # Diagnostic: how many trailing INBOUND messages pile up on an unanswered chat.
+    # Useful to spot "screaming" customers (multiple unanswered messages in a row).
+    trailing_inbound_messages: int = 0
     total_messages: int = 0
     inbound_count: int = 0
     outbound_count: int = 0
     duration_minutes: float | None = None
     response_time_by_hour: dict[str, float] | None = None
+    # Deterministic ack-based metrics (WAHA only — None for .txt uploads)
+    delivery_rate: float | None = None        # % of outbound messages delivered to WhatsApp servers
+    read_rate: float | None = None            # % of outbound messages read by the customer
+    is_ghosted: bool = False                  # last business msg READ but no reply within 24h
+    last_business_msg_ack: int | None = None  # WAHA ack of most recent outbound (-1..4)
+    # Operational coverage — % of in-hours customer messages answered within 1h
+    operational_coverage_score: float | None = None
+    out_of_hours_inbound_pct: float | None = None
+    # WAHA chat metadata (cross-validation)
+    wa_unread_count: int | None = None
+    wa_is_muted: bool = False
+    wa_is_archived: bool = False
     # Health / Insights
     health_score: float | None = None
     recommendations: list[str] = Field(default_factory=list)

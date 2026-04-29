@@ -135,10 +135,21 @@ async def get_job_results(
             # Metric fields needed for health score calculation
             total_messages=a.total_messages,
             unanswered_count=a.unanswered_count,
+            trailing_inbound_messages=getattr(a, "trailing_inbound_messages", 0) or 0,
             inbound_count=a.inbound_count,
             outbound_count=a.outbound_count,
             first_response_time_seconds=a.first_response_time_seconds,
             avg_response_time_seconds=a.avg_response_time_seconds,
+            # Deterministic ack-based + operational metrics
+            delivery_rate=getattr(a, "delivery_rate", None),
+            read_rate=getattr(a, "read_rate", None),
+            is_ghosted=bool(getattr(a, "is_ghosted", False)),
+            last_business_msg_ack=getattr(a, "last_business_msg_ack", None),
+            operational_coverage_score=getattr(a, "operational_coverage_score", None),
+            out_of_hours_inbound_pct=getattr(a, "out_of_hours_inbound_pct", None),
+            wa_unread_count=getattr(a, "wa_unread_count", None),
+            wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
+            wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
         )
         for a in analyses
     ]

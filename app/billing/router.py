@@ -89,11 +89,30 @@ async def create_payment_session(
         "amount_in_cents": amount_in_cents,
         "currency": "COP",
         "public_key": settings.wompi_public_key,
-        "redirect_url": f"{settings.wompi_redirect_base_url}/pago-exitoso",
+        "redirect_url": f"{settings.wompi_redirect_base_url}/pago-exitoso?ref={reference}",
         "plan": body.plan,
         "plan_label": PLAN_DISPLAY[body.plan]["label"],
         "price_cop": PLAN_DISPLAY[body.plan]["price_cop"],
     }
+
+
+@router.get("/payment-status")
+async def get_payment_status(
+    ref: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Poll the live status of a payment session by Wompi reference."""
+    clients = await ClientRepository(db).list_by_owner(user.user_id)
+    if not clients:
+        raise HTTPException(status_code=404, detail="Client profile not found.")
+    client = clients[0]
+
+    session = await PaymentSessionRepository(db).get_by_reference(ref)
+    if not session or str(session.client_id) != str(client.id):
+        raise HTTPException(status_code=404, detail="Payment session not found.")
+
+    return {"reference": session.reference, "status": session.status, "plan": session.plan}
 
 
 @router.get("/payment-history")

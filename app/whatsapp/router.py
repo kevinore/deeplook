@@ -35,6 +35,10 @@ class ConnectionResponse(BaseModel):
     last_sync_at: datetime | None = None
     next_scheduled_sync_at: datetime | None = None
     sync_frequency: str
+    # True = WhatsApp Business; False = personal account; None = not yet checked.
+    # A personal account CAN be connected but the analytics will still work —
+    # we surface this as a UI warning so the user knows to switch to WA Business.
+    is_business_account: bool | None = None
 
     model_config = {"from_attributes": True}
 
@@ -142,25 +146,105 @@ async def get_connection_status(
     conn = await _get_connection_or_404(str(connection_id), user, db)
     conn_repo = WhatsAppConnectionRepository(db)
 
+    # PERSONAL_ACCOUNT_BLOCKED is a terminal state set by business logic — the WAHA session
+    # was intentionally destroyed. Polling WAHA here would return 404/STOPPED and incorrectly
+    # overwrite this status, causing the UI to show FailedCard instead of the blocked screen.
+    if conn.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+        return {
+            "connection_id": str(connection_id),
+            "status": conn.status,
+            "phone_number": conn.phone_number,
+            "push_name": conn.push_name,
+            "is_business_account": conn.is_business_account,
+        }
+
     try:
         info = await waha.get_session(conn.waha_session_name)
         new_status = info.status.value
         updates: dict = {"status": new_status}
 
-        if info.me and not conn.phone_number:
-            updates["phone_number"] = info.me.id.split("@")[0]
-            updates["push_name"] = info.me.pushName or None
+        if info.me:
+            own_jid = info.me.id  # e.g. "57300...@c.us"
+            if not conn.phone_number:
+                updates["phone_number"] = own_jid.split("@")[0]
+                updates["push_name"] = info.me.pushName or None
+
+            if new_status == WahaSessionStatus.WORKING.value:
+                # Phase 1 — first detection of WORKING (transitioning from SCAN_QR_CODE etc.):
+                # return CHECKING_ACCOUNT immediately so the frontend shows a loading state
+                # within the next 2-second poll cycle instead of blocking for 12+ seconds.
+                if conn.status not in (
+                    WahaSessionStatus.WORKING.value,
+                    WahaSessionStatus.CHECKING_ACCOUNT.value,
+                ):
+                    updates["status"] = WahaSessionStatus.CHECKING_ACCOUNT.value
+                    await conn_repo.update(conn.id, **updates)
+                    await db.commit()
+                    return {
+                        "connection_id": str(connection_id),
+                        "status": WahaSessionStatus.CHECKING_ACCOUNT.value,
+                        "phone_number": updates.get("phone_number") or conn.phone_number,
+                        "push_name": updates.get("push_name") or conn.push_name,
+                        "is_business_account": None,
+                    }
+
+                # Phase 2 — already in CHECKING_ACCOUNT: run the business-account check now.
+                if conn.status == WahaSessionStatus.CHECKING_ACCOUNT.value:
+                    is_biz = await waha.check_is_business_account(conn.waha_session_name, own_jid)
+                    updates["is_business_account"] = is_biz
+
+                    if settings.waha_require_business_account and is_biz is False:
+                        logger.warning(
+                            "Personal WhatsApp account blocked [connection=%s phone=%s]",
+                            connection_id, own_jid.split("@")[0],
+                        )
+                        try:
+                            await waha.logout_session(conn.waha_session_name)
+                        except WahaError:
+                            pass
+                        try:
+                            await waha.delete_session(conn.waha_session_name)
+                        except WahaError:
+                            pass
+
+                        await conn_repo.update(
+                            conn.id,
+                            status=WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value,
+                            is_business_account=False,
+                        )
+                        await db.commit()
+                        return {
+                            "connection_id": str(connection_id),
+                            "status": WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value,
+                            "phone_number": own_jid.split("@")[0],
+                            "push_name": info.me.pushName or None,
+                            "is_business_account": False,
+                        }
+                # If conn.status == WORKING: business check already done — fall through.
 
         await conn_repo.update(conn.id, **updates)
         await db.commit()
 
+        is_biz_val = updates.get("is_business_account", getattr(conn, "is_business_account", None))
         return {
             "connection_id": str(connection_id),
             "status": new_status,
             "phone_number": info.me.id.split("@")[0] if info.me else conn.phone_number,
             "push_name": info.me.pushName if info.me else conn.push_name,
+            "is_business_account": is_biz_val,
         }
     except WahaSessionNotFoundError:
+        # Re-read from DB: a concurrent personal-account-block may have already set
+        # PERSONAL_ACCOUNT_BLOCKED and intentionally deleted the session. Don't overwrite it.
+        fresh = await conn_repo.get(str(conn.id))
+        if fresh and fresh.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+            return {
+                "connection_id": str(connection_id),
+                "status": WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value,
+                "phone_number": fresh.phone_number,
+                "push_name": fresh.push_name,
+                "is_business_account": fresh.is_business_account,
+            }
         await conn_repo.update(conn.id, status="FAILED")
         await db.commit()
         return {"connection_id": str(connection_id), "status": "FAILED", "phone_number": None, "push_name": None}
@@ -180,6 +264,13 @@ async def get_connection_qr(
 
     current_status = conn.status
 
+    # Terminal state — session was intentionally destroyed, no QR will ever come from it.
+    if current_status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
+        )
+
     # If stopped or starting, wake the session up first
     if current_status in (WahaSessionStatus.STOPPED.value, WahaSessionStatus.STARTING.value):
         try:
@@ -188,6 +279,22 @@ async def get_connection_qr(
             current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
             await conn_repo.update(conn.id, status=current_status)
             await db.commit()
+        except WahaSessionNotFoundError:
+            # Session was deleted (e.g. during personal-account-block cleanup). Re-check DB before
+            # recreating — if it was intentionally blocked, surface that instead.
+            fresh = await conn_repo.get(str(conn.id))
+            if fresh and fresh.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
+                )
+            try:
+                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
+                current_status = session_info.status.value
+                await conn_repo.update(conn.id, status=current_status)
+                await db.commit()
+            except WahaError as e:
+                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e.message}")
         except WahaError as e:
             raise HTTPException(status_code=502, detail=f"Could not start WAHA session: {e.message}")
 
@@ -198,14 +305,23 @@ async def get_connection_qr(
         )
 
     if current_status != WahaSessionStatus.SCAN_QR_CODE.value:
+        # 409 (not 502) so the frontend triggers a status refresh rather than showing FailedCard.
         raise HTTPException(
-            status_code=502,
-            detail={"code": "SESSION_NOT_READY", "message": f"Unexpected session status: '{current_status}'."},
+            status_code=409,
+            detail={"code": "SESSION_NOT_READY", "message": f"Session is in state '{current_status}'. QR not available yet."},
         )
 
     try:
         qr_base64 = await waha.get_qr_base64(conn.waha_session_name)
     except WahaError as e:
+        # WAHA rejected the QR fetch (session moved out of SCAN_QR_CODE between our check and the call).
+        # Sync the live status to DB so the next status poll reflects reality immediately.
+        try:
+            live = await waha.get_session(conn.waha_session_name)
+            await conn_repo.update(conn.id, status=live.status.value)
+            await db.commit()
+        except WahaError:
+            pass
         raise HTTPException(status_code=502, detail=f"Could not fetch QR: {e.message}")
 
     expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=20)

@@ -13,6 +13,7 @@ from app.database import async_session_factory
 from app.models.normalized import NormalizedConversation
 from app.models.schemas import ConversationAnalysisResult
 from app.repositories.analysis_repo import AnalysisJobRepository, ConversationAnalysisRepository
+from app.repositories.client_repo import ClientRepository
 from app.repositories.notification_repo import NotificationRepository
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,18 @@ async def run_analysis_job(
         engine = AnalyticsEngine(ai_provider=provider)
         concurrency = _PROVIDER_CONCURRENCY.get(provider.provider_name, 5)
 
+        # Resolve the client's business_type once per job — the AI prompt uses it
+        # to adapt the closed topic taxonomy (P3) and render the facts block (P2).
+        business_type: str | None = None
+        try:
+            job_for_client = await job_repo.get(job_id)
+            if job_for_client is not None:
+                client = await ClientRepository(session).get(str(job_for_client.client_id))
+                if client is not None:
+                    business_type = client.business_type
+        except Exception:
+            logger.warning("Could not resolve business_type for job %s — falling back to default", job_id)
+
         await job_repo.update(job_id, ai_provider=provider.provider_name, ai_model=provider.model_name)
         await session.commit()
 
@@ -85,7 +98,7 @@ async def run_analysis_job(
                     if not norm_conv.messages:
                         await result_queue.put((None, conv_id))
                         return
-                    result = await _analyze_with_retry(engine, norm_conv, conv_id)
+                    result = await _analyze_with_retry(engine, norm_conv, conv_id, business_type)
                     await result_queue.put((result, conv_id))
 
             tasks = [asyncio.create_task(_analyze_one(nc, cid)) for nc, cid in pairs]
@@ -128,11 +141,22 @@ async def run_analysis_job(
                             median_response_time_seconds=result.median_response_time_seconds,
                             p95_response_time_seconds=result.p95_response_time_seconds,
                             unanswered_count=result.unanswered_count,
+                            trailing_inbound_messages=result.trailing_inbound_messages,
                             total_messages=result.total_messages,
                             inbound_count=result.inbound_count,
                             outbound_count=result.outbound_count,
                             duration_minutes=result.duration_minutes,
                             response_time_by_hour=result.response_time_by_hour,
+                            # Deterministic ack-based metrics
+                            delivery_rate=result.delivery_rate,
+                            read_rate=result.read_rate,
+                            is_ghosted=result.is_ghosted,
+                            last_business_msg_ack=result.last_business_msg_ack,
+                            operational_coverage_score=result.operational_coverage_score,
+                            out_of_hours_inbound_pct=result.out_of_hours_inbound_pct,
+                            wa_unread_count=result.wa_unread_count,
+                            wa_is_muted=result.wa_is_muted,
+                            wa_is_archived=result.wa_is_archived,
                         )
                         await job_repo.increment_processed(job_id)
                         await job_repo.add_token_usage(job_id, result.tokens_input, result.tokens_output, result.analysis_cost_usd)
@@ -203,13 +227,14 @@ async def _analyze_with_retry(
     engine: AnalyticsEngine,
     conv,
     conv_id: str,
+    business_type: str | None = None,
 ) -> ConversationAnalysisResult:
     last_exc = None
     for attempt, wait in enumerate([0] + _RETRY_DELAYS):
         if wait:
             await asyncio.sleep(wait)
         try:
-            return await engine.analyze_conversation(conv, conv_id)
+            return await engine.analyze_conversation(conv, conv_id, business_type=business_type)
         except Exception as exc:
             last_exc = exc
             logger.warning("Retry %d for conversation %s: %s",
