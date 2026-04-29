@@ -1,0 +1,23 @@
+Tu reporte está listo
+
+Hola {{ name }},
+
+Terminamos de analizar las conversaciones recientes de {{ business_name }}.
+Encuentra el reporte completo adjunto a este correo en PDF.
+
+{% if health_score is not none %}
+SALUD DE TU WHATSAPP: {{ health_score }}/100 ({{ score_label }})
+{% endif %}
+Conversaciones analizadas: {{ conversation_count }}
+
+El PDF incluye:
+- Desglose completo por conversación
+- Gráficos de sentimiento y tiempos de respuesta
+- Recomendaciones específicas para mejorar resultados
+
+→ Ver en el panel: {{ report_url }}
+
+Recordatorio de privacidad: el contenido de los mensajes nunca se almacena.
+Solo guardamos las métricas y el resumen del análisis.
+
+— El equipo de DeepLook

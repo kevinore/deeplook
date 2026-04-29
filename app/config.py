@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     anthropic_request_delay: float = 1.5
     gemini_request_delay: float = 0.1
 
+    # Email (Resend)
+    resend_api_key: str = ""
+    email_from: str = "DeepLook <onboarding@resend.dev>"
+    email_reply_to: str = "contacto@deeplook.co"
+    email_enabled: bool = True
+    # Public URL where the SPA is hosted (used in CTA links inside emails)
+    frontend_base_url: str = "http://localhost:5173"
+
     @field_validator("database_url", mode="before")
     @classmethod
     def ensure_asyncpg_scheme(cls, v: str) -> str:

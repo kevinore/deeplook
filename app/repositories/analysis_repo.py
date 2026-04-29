@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import AnalysisJob, Contact, Conversation, ConversationAnalysis, DailyMetrics
@@ -20,12 +20,28 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
         return list(result.scalars().all())
 
     async def count_by_client_this_period(self, client_id: str, period_start: datetime) -> int:
-        """Count non-failed jobs since period_start (used for quota enforcement)."""
+        """
+        Count successful + active jobs since period_start (for quota enforcement).
+
+        Excluded from the count:
+          - status = 'failed'           → never charged the user
+          - status = 'pending' or 'processing' AND older than 15 min → orphan
+            (worker crashed mid-sync; treating it as 'in flight' would
+            permanently inflate the user's used quota)
+        """
+        from datetime import datetime, timezone, timedelta
+        orphan_cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
         result = await self.session.execute(
             select(func.count(AnalysisJob.id)).where(
                 AnalysisJob.client_id == client_id,
                 AnalysisJob.created_at >= period_start,
-                AnalysisJob.status.in_(["pending", "processing", "completed"]),
+                or_(
+                    AnalysisJob.status == "completed",
+                    and_(
+                        AnalysisJob.status.in_(["pending", "processing"]),
+                        AnalysisJob.created_at >= orphan_cutoff,
+                    ),
+                ),
             )
         )
         return result.scalar() or 0

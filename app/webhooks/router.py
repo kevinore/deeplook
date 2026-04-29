@@ -96,6 +96,9 @@ async def wompi_webhook(request: Request, db: AsyncSession = Depends(get_db)) ->
             plan_started_at=now,
             plan_expires_at=new_expires_at,
             subscription_status="active",
+            # Reset renewal-email tracking so the next cycle re-emits the reminders.
+            last_renewal_email_stage=None,
+            last_renewal_email_sent_at=None,
         )
         logger.info(
             "Wompi webhook: activated plan=%s for client=%s (tx=%s) expires=%s",

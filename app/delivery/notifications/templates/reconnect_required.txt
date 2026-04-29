@@ -1,0 +1,25 @@
+ACCIÓN REQUERIDA
+Tu WhatsApp se desconectó de DeepLook
+
+Hola {{ name }},
+
+Detectamos que la conexión de {{ business_name }} con DeepLook fue desvinculada
+por WhatsApp. Para seguir recibiendo tus reportes automáticos, necesitas
+escanear un código QR nuevo.
+
+¿Por qué pasó esto?
+WhatsApp desvincula automáticamente cualquier dispositivo conectado si tu
+teléfono no se conecta a WhatsApp por 14 días seguidos. Esto es una medida
+de seguridad de WhatsApp y aplica a cualquier integración.
+
+Reconectar toma menos de 1 minuto:
+1. Entra al panel de DeepLook
+2. Ve a la sección "Conectar WhatsApp"
+3. Escanea el código QR con tu teléfono
+
+→ Reconectar WhatsApp: {{ connect_url }}
+
+Mientras no reconectes, tus reportes automáticos están en pausa. No se
+descontará nada de tu cuota durante este período.
+
+— El equipo de DeepLook

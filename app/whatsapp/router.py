@@ -178,6 +178,12 @@ async def get_connection_status(
                     WahaSessionStatus.CHECKING_ACCOUNT.value,
                 ):
                     updates["status"] = WahaSessionStatus.CHECKING_ACCOUNT.value
+                    # User just (re)scanned the QR — clear the reconnect-email dedupe so
+                    # any future disconnection sends a fresh notice instead of being silent.
+                    updates["last_reconnect_email_sent_at"] = None
+                    # Bump session-active so the keepalive scheduler doesn't immediately
+                    # re-poke a session that was just brought online.
+                    updates["last_session_active_at"] = datetime.now(tz=timezone.utc)
                     await conn_repo.update(conn.id, **updates)
                     await db.commit()
                     return {
@@ -339,30 +345,44 @@ async def manual_sync(
 ) -> SyncResponse:
     conn = await _get_connection_or_404(str(connection_id), user, db)
 
-    # Block if an active sync is already running
+    # Block only if there's an active sync running RIGHT NOW.
+    # If a previous sync got stuck pending/processing for >15 min, treat it as
+    # orphaned (worker crashed) and allow a new attempt — otherwise the user
+    # would be permanently locked out by a single bad sync.
     if conn.last_sync_job_id:
         last_job = await AnalysisJobRepository(db).get(str(conn.last_sync_job_id))
         if last_job and last_job.status in ("pending", "processing"):
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "SYNC_IN_PROGRESS", "message": "A sync is already running."},
+            job_created = last_job.created_at
+            if job_created.tzinfo is None:
+                job_created = job_created.replace(tzinfo=timezone.utc)
+            age_minutes = (datetime.now(tz=timezone.utc) - job_created).total_seconds() / 60
+            if age_minutes < 15:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "SYNC_IN_PROGRESS", "message": "Ya hay un sync en curso. Espera a que termine."},
+                )
+            # Orphaned: mark the stuck job as failed so it won't keep blocking
+            await AnalysisJobRepository(db).update(
+                str(last_job.id), status="failed",
+                error_message="Sync orphaned (no completion within 15 min)",
             )
+            await db.commit()
 
-    # Enforce minimum interval between syncs so Plus/Enterprise reports are
-    # spaced correctly (biweekly = 15 days, weekly = 7 days, monthly = 30 days).
-    _MIN_DAYS = {"weekly": 7, "biweekly": 15, "monthly": 30}
-    min_days = _MIN_DAYS.get(conn.sync_frequency, 30)
+    # Anti-spam guard: minimum 2 minutes between manual syncs to prevent rapid
+    # double-clicks and give the WAHA session time to be torn down between runs.
+    # The plan-based interval (biweekly/monthly) only applies to the AUTO scheduler;
+    # manual syncs are gated solely by the billing quota below.
     if conn.last_sync_at is not None:
         now_utc = datetime.now(tz=timezone.utc)
         last = conn.last_sync_at if conn.last_sync_at.tzinfo else conn.last_sync_at.replace(tzinfo=timezone.utc)
-        next_allowed = last + timedelta(days=min_days)
+        next_allowed = last + timedelta(minutes=2)
         if now_utc < next_allowed:
-            days_left = (next_allowed - now_utc).days + 1
+            seconds_left = int((next_allowed - now_utc).total_seconds())
             raise HTTPException(
                 status_code=429,
                 detail={
                     "code": "TOO_SOON",
-                    "message": f"Tu siguiente reporte estará disponible en {days_left} día{'s' if days_left != 1 else ''}.",
+                    "message": f"Espera {seconds_left} segundos antes de generar otro reporte.",
                     "next_sync_at": next_allowed.isoformat(),
                 },
             )

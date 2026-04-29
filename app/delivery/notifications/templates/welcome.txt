@@ -1,0 +1,23 @@
+¡Bienvenido a DeepLook, {{ name }}!
+
+Acabas de unirte a DeepLook. A partir de ahora vas a ver exactamente qué pasa
+en las conversaciones de {{ business_name }} por WhatsApp — con métricas reales,
+no suposiciones.
+
+Cómo empezar (3 pasos):
+
+1. Conecta tu WhatsApp Business
+   Escanea un código QR una sola vez. Tomamos el resto desde ahí.
+
+2. Recibe tu primer reporte
+   Analizamos hasta los últimos 30 días automáticamente. Tarda unos minutos.
+
+3. Mejora tus respuestas
+   Recibe recomendaciones específicas basadas en tu operación, no en teoría.
+
+→ Conectar WhatsApp: {{ connect_url }}
+→ Ir al panel principal: {{ dashboard_url }}
+
+Si tienes preguntas, responde a este correo y te contactaremos.
+
+— El equipo de DeepLook

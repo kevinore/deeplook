@@ -160,6 +160,9 @@ class ClientCreateRequest(BaseModel):
     business_identifiers: list[str] = Field(default_factory=list)
     phone: str | None = None
     average_transaction_value: float | None = None
+    # Habeas Data (Ley 1581/2012): explicit acceptance of Privacy Policy +
+    # Terms of Service. The route enforces this must be True.
+    policies_accepted: bool = False
 
 
 class ClientUpdateRequest(BaseModel):

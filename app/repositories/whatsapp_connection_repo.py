@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import Client, WhatsAppConnection
@@ -31,6 +31,30 @@ class WhatsAppConnectionRepository(BaseRepository[WhatsAppConnection]):
             .where(
                 WhatsAppConnection.next_scheduled_sync_at <= now,
                 WhatsAppConnection.status.in_(["WORKING", "STOPPED"]),
+                Client.plan != "free",
+                Client.is_active == True,  # noqa: E712
+            )
+        )
+        return list(result.scalars().all())
+
+    async def get_due_keepalives(self, cutoff: datetime) -> list[WhatsAppConnection]:
+        """
+        Return connections that need a keepalive ping — i.e., connections that
+        have been idle (no sync, no prior keepalive) since `cutoff`. Skips
+        already-broken sessions (SCAN_QR_CODE / FAILED) since those need
+        user action; pinging them won't help.
+
+        Pre-paired sessions with no `last_session_active_at` (e.g., brand-new
+        connections that never synced) are intentionally NOT picked up — they
+        either get their first sync soon, or there's nothing to keep alive.
+        """
+        result = await self.session.execute(
+            select(WhatsAppConnection)
+            .join(Client, WhatsAppConnection.client_id == Client.id)
+            .where(
+                WhatsAppConnection.status.in_(["WORKING", "STOPPED"]),
+                WhatsAppConnection.last_session_active_at.is_not(None),
+                WhatsAppConnection.last_session_active_at < cutoff,
                 Client.plan != "free",
                 Client.is_active == True,  # noqa: E712
             )

@@ -110,10 +110,20 @@ async def run_waha_sync_job(
             if status == WahaSessionStatus.SCAN_QR_CODE:
                 await conn_repo.update(conn.id, status="SCAN_QR_CODE")
                 await session.commit()
+                # Inform the user with a specific reconnect notice (not generic "sync failed").
+                from app.services.whatsapp_keepalive import _notify_reconnect_required
+                fresh_conn = await conn_repo.get(connection_id)
+                if fresh_conn is not None:
+                    await _notify_reconnect_required(fresh_conn, session)
                 raise WahaRePairingRequiredError(name)
 
             if status not in (WahaSessionStatus.WORKING,):
                 raise WahaSessionNotReadyError(name, status.value)
+
+            # Session is up — record activity so the keepalive scheduler doesn't
+            # double-poke it. Updated again at the end on full success.
+            await conn_repo.update(conn.id, last_session_active_at=datetime.now(tz=timezone.utc))
+            await session.flush()
 
             # --- 2. Resolve me.id ---
             fresh = await waha_client.get_session(name)
@@ -157,7 +167,9 @@ async def run_waha_sync_job(
             if not batch.conversations:
                 logger.info("WAHA sync [job=%s]: no new conversations since %s", job_id, since.date())
                 await job_repo.update(job_id, status="completed", completed_at=datetime.utcnow(), total_conversations=0)
-                await conn_repo.update(conn.id, last_sync_at=now, status=conn_status)
+                await conn_repo.update(
+                    conn.id, last_sync_at=now, last_session_active_at=now, status=conn_status,
+                )
                 await session.commit()
                 return
 
@@ -173,6 +185,7 @@ async def run_waha_sync_job(
             await conn_repo.update(
                 conn.id,
                 last_sync_at=now,
+                last_session_active_at=now,
                 last_sync_job_id=job_id,
                 status=conn_status,
                 next_scheduled_sync_at=now + timedelta(days=period_days),
@@ -184,6 +197,21 @@ async def run_waha_sync_job(
                 job_id, len(pairs),
             )
 
+        except WahaRePairingRequiredError as exc:
+            # The reconnect notification + email were already sent above; here we
+            # just mark the job failed with a clear status code so the dashboard
+            # can show "Reconectar" instead of "Error en sincronización".
+            logger.warning("WAHA sync stopped [job=%s]: re-pairing required for session", job_id)
+            try:
+                await job_repo.update(
+                    job_id,
+                    status="failed",
+                    error_message="WhatsApp desvinculó el dispositivo — requiere reconexión",
+                )
+                await session.commit()
+            except Exception:
+                pass
+            return
         except Exception as exc:
             logger.error("WAHA sync failed [job=%s]: %s", job_id, exc, exc_info=True)
             try:

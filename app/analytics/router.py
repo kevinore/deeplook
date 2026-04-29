@@ -218,6 +218,7 @@ async def get_trends(
 
     trend_points: list[JobTrendPoint] = []
     topic_counter: dict[str, int] = {}
+    total_conversations_analyzed = 0  # denominator for topic %, matches PDF logic
     avg_frt_latest: float | None = None
     avg_rt_latest: float | None = None
     latest_results: list[ConversationAnalysisResult] = []
@@ -229,6 +230,9 @@ async def get_trends(
     for job in all_jobs:
         analyses_raw = analyses_by_job.get(str(job.id), [])
 
+        # Load every field that calculate_health_score and get_health_score_breakdown
+        # need — especially operational_coverage_score, otherwise the trends health
+        # score and breakdown don't match the values shown in the PDF / job results.
         results = [
             ConversationAnalysisResult(
                 conversation_id=a.conversation_id,
@@ -240,11 +244,13 @@ async def get_trends(
                 quality_score=a.quality_score,
                 conversion_status=a.conversion_status,
                 total_messages=a.total_messages,
-                unanswered_count=a.unanswered_count,
+                unanswered_count=a.unanswered_count or 0,
+                trailing_inbound_messages=getattr(a, "trailing_inbound_messages", 0) or 0,
                 inbound_count=a.inbound_count,
                 outbound_count=a.outbound_count,
                 first_response_time_seconds=a.first_response_time_seconds,
                 avg_response_time_seconds=a.avg_response_time_seconds,
+                operational_coverage_score=getattr(a, "operational_coverage_score", None),
             )
             for a in analyses_raw
         ]
@@ -257,6 +263,7 @@ async def get_trends(
         health = round(calculate_health_score(results, first_response_time_seconds=avg_frt, avg_response_time_seconds=avg_rt), 1) if results else None
 
         total = len(results)
+        total_conversations_analyzed += total
         pos = sum(1 for r in results if r.sentiment == Sentiment.POSITIVE)
         neu = sum(1 for r in results if r.sentiment == Sentiment.NEUTRAL)
         neg = sum(1 for r in results if r.sentiment == Sentiment.NEGATIVE)
@@ -268,12 +275,11 @@ async def get_trends(
         q_vals = [r.quality_score for r in results if r.quality_score is not None]
         avg_quality = round(sum(q_vals) / len(q_vals), 1) if q_vals else None
 
+        # Count primary_topic only — must match the topic counting in
+        # pdf_generator.py and recommendations.py so percentages line up.
         for r in results:
             if r.primary_topic:
                 topic_counter[r.primary_topic] = topic_counter.get(r.primary_topic, 0) + 1
-            for t in (r.secondary_topics or []):
-                if t:
-                    topic_counter[t] = topic_counter.get(t, 0) + 1
 
         dt = job.created_at
         label = f"{_MONTH_ES.get(dt.month, '')} {dt.day}"
@@ -305,12 +311,14 @@ async def get_trends(
     breakdown_raw = get_health_score_breakdown(latest_results, first_response_time_seconds=avg_frt_latest, avg_response_time_seconds=avg_rt_latest) if latest_results else []
     health_breakdown = [HealthDimension(**d) for d in breakdown_raw]
 
-    # Top topics across all jobs
-    total_topic_mentions = sum(topic_counter.values())
+    # Top topics across all jobs.
+    # Denominator is the number of analyzed conversations (not raw mention count),
+    # matching pdf_generator.py and recommendations.py:
+    #     topic_pct = top_count / len(results) * 100
     top_topics = [
-        TopicFrequency(label=t, count=c, pct=round(c / total_topic_mentions * 100, 1))
+        TopicFrequency(label=t, count=c, pct=round(c / total_conversations_analyzed * 100, 1))
         for t, c in sorted(topic_counter.items(), key=lambda x: x[1], reverse=True)[:8]
-    ] if total_topic_mentions > 0 else []
+    ] if total_conversations_analyzed > 0 else []
 
     # Trend direction (last 2 completed jobs)
     health_scores = [p.health_score for p in trend_points if p.health_score is not None]

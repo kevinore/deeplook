@@ -1,0 +1,82 @@
+{% extends "_base.html" %}
+{% block title %}Tu WhatsApp se desconectó{% endblock %}
+{% block preheader %}WhatsApp desvinculó tu dispositivo — reconecta en menos de 1 minuto para no perder tus reportes.{% endblock %}
+
+{% block content %}
+<!-- Status banner -->
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+  <tr>
+    <td style="background-color:#fef2f2;border-left:4px solid #ef4444;border-radius:6px;padding:12px 18px;">
+      <p style="margin:0;font-size:13px;font-weight:600;color:#dc2626;letter-spacing:0.4px;text-transform:uppercase;">
+        Acción requerida
+      </p>
+    </td>
+  </tr>
+</table>
+
+<h1 class="h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
+  Tu WhatsApp se desconectó de DeepLook
+</h1>
+
+<p style="margin:0 0 20px;font-size:16px;line-height:24px;color:#374151;">
+  Hola {{ name }}, detectamos que la conexión de <strong>{{ business_name }}</strong> con DeepLook
+  fue desvinculada por WhatsApp. Para seguir recibiendo tus reportes automáticos, necesitas
+  escanear un código QR nuevo.
+</p>
+
+<!-- Why this happened -->
+<div style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:0 0 24px;">
+  <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#0e0749;">¿Por qué pasó esto?</p>
+  <p style="margin:0;font-size:13px;line-height:20px;color:#6b7280;">
+    WhatsApp desvincula automáticamente cualquier dispositivo conectado si tu teléfono no
+    se conecta a WhatsApp por 14 días seguidos. Esto es una medida de seguridad de WhatsApp
+    y aplica a cualquier integración (no solo DeepLook).
+  </p>
+</div>
+
+<!-- Step list -->
+<p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#374151;">
+  Reconectar toma menos de 1 minuto:
+</p>
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
+  <tr>
+    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+      <span style="color:#4f46e5;font-weight:700;">1.</span>&nbsp;&nbsp;Entra al panel de DeepLook
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+      <span style="color:#4f46e5;font-weight:700;">2.</span>&nbsp;&nbsp;Ve a la sección "Conectar WhatsApp"
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+      <span style="color:#4f46e5;font-weight:700;">3.</span>&nbsp;&nbsp;Escanea el código QR con tu teléfono
+    </td>
+  </tr>
+</table>
+
+<!-- CTA button -->
+<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:8px 0 16px;">
+  <tr>
+    <td align="center" style="border-radius:8px;background-color:#4f46e5;">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ connect_url }}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="17%" stroke="f" fillcolor="#4f46e5">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:600;">Reconectar WhatsApp</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="{{ connect_url }}" style="display:inline-block;padding:14px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#4f46e5;">
+        Reconectar WhatsApp →
+      </a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+</table>
+
+<p style="margin:24px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:20px;color:#9ca3af;">
+  Mientras no reconectes, tus reportes automáticos están en pausa. No se descontará nada
+  de tu cuota durante este período.
+</p>
+{% endblock %}

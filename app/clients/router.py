@@ -1,13 +1,17 @@
+import asyncio
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser, assert_client_owner, get_current_user
+from app.delivery.notifications.email_service import get_email_service
 from app.dependencies import get_db
 from app.models.schemas import ClientCreateRequest, ClientResponse, ClientUpdateRequest
 from app.repositories.client_repo import ClientRepository
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
 
@@ -17,6 +21,16 @@ async def create_client(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> ClientResponse:
+    # Habeas Data: explicit consent is mandatory under Ley 1581/2012.
+    # Without policies_accepted=true we cannot legally process the user's data.
+    if not body.policies_accepted:
+        raise HTTPException(
+            status_code=422,
+            detail="Debes aceptar la Política de Privacidad y los Términos de Servicio para continuar.",
+        )
+
+    from datetime import datetime, timezone
+
     repo = ClientRepository(db)
     existing = await repo.get_by_email(str(body.email))
     if existing:
@@ -30,8 +44,19 @@ async def create_client(
         business_identifiers=body.business_identifiers,
         average_transaction_value=body.average_transaction_value,
         clerk_user_id=user.user_id,
+        policies_accepted_at=datetime.now(tz=timezone.utc),
     )
     await db.commit()
+
+    # Fire-and-forget welcome email — never block the response or fail the request.
+    asyncio.create_task(
+        get_email_service().send_welcome(
+            to_email=client.email,
+            name=client.name,
+            business_name=client.business_name,
+        )
+    )
+
     return ClientResponse.model_validate(client)
 
 

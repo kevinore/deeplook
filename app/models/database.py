@@ -40,10 +40,15 @@ class Client(Base):
     plan_started_at = Column(DateTime(timezone=True), nullable=True)
     plan_expires_at = Column(DateTime(timezone=True), nullable=True)
     subscription_status = Column(String(30), default="inactive", nullable=False)
+    last_renewal_email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    last_renewal_email_stage = Column(String(10), nullable=True)
     average_transaction_value = Column(Float, nullable=True)
     waba_id = Column(String(100), nullable=True)
     phone_number_id = Column(String(100), nullable=True)
     onboarded_via = Column(String(50), default="file_upload", nullable=False)
+    # Habeas Data (Ley 1581/2012): timestamp at which the user explicitly accepted
+    # the Privacy Policy and Terms of Service. Captured at onboarding.
+    policies_accepted_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -201,6 +206,10 @@ class WhatsAppConnection(Base):
     last_sync_job_id = Column(UUID(as_uuid=False), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True)
     sync_frequency = Column(String(20), default="monthly", nullable=False)
     next_scheduled_sync_at = Column(DateTime(timezone=True), nullable=True)
+    # Last time we successfully touched the WAHA session (sync OR keepalive).
+    # Drives the keepalive job — bumped to "now" whenever we wake the session
+    # to prevent WhatsApp's 14-day idle device-unlink rule.
+    last_session_active_at = Column(DateTime(timezone=True), nullable=True)
     # True = WhatsApp Business, False = personal, None = not yet checked.
     is_business_account = Column(Boolean, nullable=True)
     last_reconnect_email_sent_at = Column(DateTime(timezone=True), nullable=True)
@@ -212,6 +221,7 @@ class WhatsAppConnection(Base):
 
     __table_args__ = (
         Index("ix_whatsapp_connections_next_sync", "next_scheduled_sync_at", "status"),
+        Index("ix_whatsapp_connections_keepalive", "last_session_active_at", "status"),
     )
 
 

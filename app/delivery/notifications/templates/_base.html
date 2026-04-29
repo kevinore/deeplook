@@ -1,0 +1,85 @@
+{# Shared email layout — table-based for Outlook compatibility, inline CSS,
+   max-width 600px, mobile-responsive. Uses brand colors:
+   #4f46e5 primary, #a78bfa accent, #0e0749 navy, #f9fafb background.
+#}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{% block title %}DeepLook{% endblock %}</title>
+  <!--[if mso]>
+  <style>
+    table, td, div, h1, h2, p {font-family: 'Segoe UI', Arial, sans-serif !important;}
+  </style>
+  <![endif]-->
+  <style>
+    @media only screen and (max-width: 620px) {
+      .container { width: 100% !important; }
+      .px-30     { padding-left: 24px !important; padding-right: 24px !important; }
+      .py-50     { padding-top: 32px !important; padding-bottom: 32px !important; }
+      .h1        { font-size: 24px !important; line-height: 32px !important; }
+      .stat-grid td { display: block !important; width: 100% !important; padding: 8px 0 !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;-webkit-font-smoothing:antialiased;">
+  <!-- Preheader (hidden preview text shown by inboxes) -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f4f7;">
+    {% block preheader %}{% endblock %}
+  </div>
+
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f4f4f7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+
+          <!-- ── Header / brand bar ────────────────────────────────────── -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#0e0749 0%,#4f46e5 100%);padding:28px 40px;">
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size:22px;font-weight:700;letter-spacing:-0.3px;color:#ffffff;">
+                    Deep<span style="color:#a78bfa;">Look</span>
+                  </td>
+                  <td align="right" style="font-size:12px;color:#c7d2fe;font-weight:500;letter-spacing:0.4px;text-transform:uppercase;">
+                    Análisis de WhatsApp
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── Main content ──────────────────────────────────────────── -->
+          <tr>
+            <td class="px-30 py-50" style="padding:48px 40px;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- ── Footer ────────────────────────────────────────────────── -->
+          <tr>
+            <td style="background-color:#f9fafb;padding:24px 40px;border-top:1px solid #e5e7eb;">
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-size:12px;line-height:18px;color:#6b7280;">
+                    Este correo fue enviado automáticamente por <strong style="color:#4f46e5;">DeepLook</strong>.
+                    Si tienes preguntas, responde directamente a este mensaje y te contactaremos.
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-top:12px;font-size:11px;color:#9ca3af;">
+                    DeepLook — Análisis inteligente de conversaciones de WhatsApp Business para MiPymes en Colombia.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{% if days_remaining == 0 -%}
+TU PLAN VENCE HOY
+{%- elif days_remaining == 1 -%}
+TU PLAN VENCE MAÑANA
+{%- else -%}
+QUEDAN {{ days_remaining }} DÍAS DE TU PLAN {{ plan_label|upper }}
+{%- endif %}
+
+Hola {{ name }},
+
+Tu plan {{ plan_label }} de DeepLook para {{ business_name }} está por vencer.
+Renueva ahora para mantener los reportes automáticos y la conexión activa con WhatsApp.
+
+Plan actual: {{ plan_label }}
+Precio mensual: {{ plan_price_cop|cop }}
+Tiempo restante: {% if days_remaining == 0 %}Vence hoy{% elif days_remaining == 1 %}1 día{% else %}{{ days_remaining }} días{% endif %}
+
+Si no renuevas, vas a perder:
+- Reportes automáticos de tus conversaciones
+- Conexión activa con WhatsApp Business
+- Recomendaciones personalizadas para tu negocio
+
+→ Renovar mi plan: {{ renew_url }}
+
+¿Quieres cambiar de plan o tienes alguna duda? Responde a este correo y te ayudamos.
+
+— El equipo de DeepLook

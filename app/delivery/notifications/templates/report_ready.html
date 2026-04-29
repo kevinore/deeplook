@@ -1,0 +1,92 @@
+{% extends "_base.html" %}
+{% block title %}Tu reporte de DeepLook está listo{% endblock %}
+{% block preheader %}Analizamos {{ conversation_count }} conversaciones. Adjuntamos el PDF y un resumen rápido.{% endblock %}
+
+{% block content %}
+<h1 class="h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
+  Tu reporte está listo
+</h1>
+
+<p style="margin:0 0 28px;font-size:16px;line-height:24px;color:#374151;">
+  Hola {{ name }}, terminamos de analizar las conversaciones recientes de <strong>{{ business_name }}</strong>.
+  Adjuntamos el reporte completo en PDF a este correo.
+</p>
+
+<!-- ── Health score hero card ───────────────────────────────────────── -->
+{% if health_score is not none %}
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
+  <tr>
+    <td style="background:linear-gradient(135deg,#f9fafb 0%,#eef2ff 100%);border:1px solid #e5e7eb;border-radius:12px;padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#6b7280;letter-spacing:1px;text-transform:uppercase;">
+        Salud de tu WhatsApp
+      </p>
+      <p style="margin:0 0 8px;font-size:56px;line-height:60px;font-weight:800;color:#0e0749;letter-spacing:-2px;">
+        {{ health_score }}<span style="font-size:24px;font-weight:600;color:#9ca3af;">/100</span>
+      </p>
+      <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center">
+        <tr>
+          <td style="background-color:{{ score_color }};color:#ffffff;font-size:13px;font-weight:600;padding:6px 16px;border-radius:999px;letter-spacing:0.3px;">
+            {{ score_label }}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- ── Summary stats ────────────────────────────────────────────────── -->
+<table role="presentation" width="100%" class="stat-grid" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
+  <tr>
+    <td width="50%" style="padding-right:8px;" valign="top">
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:18px 20px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#6b7280;letter-spacing:0.6px;text-transform:uppercase;">Conversaciones</p>
+            <p style="margin:0;font-size:24px;font-weight:700;color:#0e0749;">{{ conversation_count }}</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+    <td width="50%" style="padding-left:8px;" valign="top">
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:18px 20px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#6b7280;letter-spacing:0.6px;text-transform:uppercase;">Análisis</p>
+            <p style="margin:0;font-size:24px;font-weight:700;color:#0e0749;">Completo</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 20px;font-size:15px;line-height:23px;color:#374151;">
+  El PDF adjunto incluye desglose completo por conversación, gráficos de sentimiento,
+  tiempos de respuesta y <strong>recomendaciones específicas</strong> para mejorar tus resultados.
+</p>
+
+<!-- ── CTA button ───────────────────────────────────────────────────── -->
+<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:8px 0 16px;">
+  <tr>
+    <td align="center" style="border-radius:8px;background-color:#4f46e5;">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ report_url }}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="17%" stroke="f" fillcolor="#4f46e5">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:600;">Ver en el panel</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="{{ report_url }}" style="display:inline-block;padding:14px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;background-color:#4f46e5;">
+        Ver en el panel →
+      </a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+</table>
+
+<p style="margin:24px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:20px;color:#9ca3af;">
+  Recordatorio de privacidad: el contenido de los mensajes nunca se almacena.
+  Solo guardamos las métricas y el resumen del análisis.
+</p>
+{% endblock %}
