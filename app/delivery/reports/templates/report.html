@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>DeepLook — Informe {{ business_name }}</title>
+  <style>
+    /* ── Page setup (WeasyPrint A4) ─────────────────────────────── */
+    @page {
+      size: A4;
+      margin: 10mm 14mm 14mm 14mm;
+      @bottom-left {
+        content: "Reporte generado por DeepLook — WhatsApp Business Analytics";
+        font-size: 8px;
+        color: #AAAAAA;
+        font-family: Arial, sans-serif;
+      }
+      @bottom-right {
+        content: "Página " counter(page) " de " counter(pages);
+        font-size: 8px;
+        color: #AAAAAA;
+        font-family: Arial, sans-serif;
+      }
+    }
+    @page :first {
+      @top-left { content: ""; }
+      @top-right { content: ""; }
+    }
+    @page :not(:first) {
+      @top-left {
+        content: "DeepLook";
+        font-size: 9px;
+        font-weight: bold;
+        color: #0F6E56;
+        font-family: Arial, sans-serif;
+      }
+      @top-right {
+        content: "{{ business_name }}";
+        font-size: 9px;
+        color: #555555;
+        font-family: Arial, sans-serif;
+      }
+      margin-top: 14mm;
+      border-top: 1px solid #E0E0DD;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: #2D2D2B;
+      background: #fff;
+      line-height: 1.4;
+    }
+    .page { width: 100%; }
+
+    /* ── Cover ──────────────────────────────────────────────────── */
+    .cover {
+      background: linear-gradient(135deg, #0F6E56 0%, #1D9E75 100%);
+      color: white;
+      padding: 20px 22px 18px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    .cover-eyebrow {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      opacity: 0.70;
+      margin-bottom: 2px;
+    }
+    .cover-brand {
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0.85;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+    .cover-business {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      line-height: 1.15;
+    }
+    .health-block {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: rgba(255,255,255,0.16);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 8px;
+      padding: 11px 18px;
+      margin-bottom: 10px;
+    }
+    .health-number { font-size: 50px; font-weight: 800; line-height: 1; }
+    .health-info { }
+    .health-slash { font-size: 12px; opacity: 0.65; margin-bottom: 1px; }
+    .health-rating { font-size: 19px; font-weight: 700; }
+    .cover-meta {
+      font-size: 10px;
+      opacity: 0.68;
+      margin-top: 6px;
+    }
+    .health-explanation {
+      background: rgba(255,255,255,0.12);
+      border-radius: 6px;
+      padding: 9px 14px;
+      margin-top: 10px;
+      font-size: 10.5px;
+      line-height: 1.55;
+      opacity: 0.93;
+      white-space: pre-line;
+    }
+
+    /* ── Section titles ─────────────────────────────────────────── */
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0F6E56;
+      margin: 20px 0 9px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid #5DCAA5;
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
+    /* ── Section explanation (brief gray italic intro per section) ── */
+    .section-explain {
+      font-size: 10.5px;
+      color: #999;
+      font-style: italic;
+      margin: -2px 0 10px;
+      line-height: 1.5;
+    }
+    .section-explain strong { font-style: normal; color: #666; }
+
+    /* ── KPI metric cards ───────────────────────────────────────── */
+    .metrics-row {
+      display: flex;
+      gap: 8px;
+      margin: 9px 0;
+      flex-wrap: wrap;
+    }
+    .metric-card {
+      flex: 1;
+      min-width: 90px;
+      background: #F9F9F8;
+      border-radius: 6px;
+      padding: 8px 10px;
+      border-left: 4px solid #1D9E75;
+    }
+    .metric-card.green  { border-left-color: #1D9E75; }
+    .metric-card.amber  { border-left-color: #EF9F27; }
+    .metric-card.red    { border-left-color: #D85A30; }
+    .metric-card.gray   { border-left-color: #6B7280; }
+    .metric-card .val   { font-size: 19px; font-weight: 700; color: #0F6E56; line-height: 1.1; }
+    .metric-card.amber .val { color: #B87410; }
+    .metric-card.red   .val { color: #B54020; }
+    .metric-card.gray  .val { color: #4B5563; }
+    .metric-card .lbl   { font-size: 10px; color: #888780; margin-top: 2px; }
+    .metric-card .bench { font-size: 9px; color: #C0C0BC; margin-top: 3px; font-style: italic; }
+
+    /* ── Traffic-light dot ──────────────────────────────────────── */
+    .dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      margin-left: 3px;
+      vertical-align: middle;
+    }
+    .dot.green  { background: #1D9E75; }
+    .dot.amber  { background: #EF9F27; }
+    .dot.red    { background: #D85A30; }
+    .dot.gray   { background: #6B7280; }
+
+    /* ── Charts ─────────────────────────────────────────────────── */
+    .chart-container { margin: 14px 0 5px; }
+    .chart-container img { width: 100%; height: auto; display: block; }
+
+    /* ── Tables ─────────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 11px;
+    }
+    th {
+      background: #0F6E56;
+      color: white;
+      padding: 5px 8px;
+      text-align: left;
+      font-size: 11px;
+    }
+    td { padding: 4px 8px; border-bottom: 1px solid #EDEDED; }
+    tr:nth-child(even) td { background: #F9F9F8; }
+    .bench-cell { font-size: 9.5px; color: #C0C0BC; }
+
+    /* ── Recommendations ────────────────────────────────────────── */
+    ul.rec-list { list-style: none; }
+    ul.rec-list li {
+      background: #F0FAF6;
+      border-left: 4px solid #1D9E75;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-bottom: 9px;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+
+    /* ── Alerts ─────────────────────────────────────────────────── */
+    ul.alert-list { list-style: none; }
+    ul.alert-list li {
+      background: #FDF2EE;
+      border-left: 4px solid #D85A30;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      font-size: 11.5px;
+    }
+
+    /* ── Callout boxes ──────────────────────────────────────────── */
+    .callout {
+      background: #F0FAF6;
+      border-left: 4px solid #1D9E75;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin: 12px 0;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .callout.warn  { background: #FDF6EE; border-left-color: #EF9F27; }
+    .callout.alert { background: #FDF2EE; border-left-color: #D85A30; }
+
+    /* ── Warning banner (sample size) ──────────────────────────── */
+    .warning-banner {
+      border-radius: 4px;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .warning-banner.critical {
+      background: #FEF3CD;
+      border-left: 4px solid #EF9F27;
+    }
+    .warning-banner.warning {
+      background: #FFF8E8;
+      border-left: 4px solid #F5C842;
+    }
+
+    /* ── Market data callout ────────────────────────────────────── */
+    .market-callout {
+      background: #EEF5FF;
+      border-left: 4px solid #378ADD;
+      border-radius: 4px;
+      padding: 9px 13px;
+      margin: 10px 0;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: #2A3F5F;
+    }
+    .market-label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #378ADD;
+    }
+
+    /* ── Revenue impact card ────────────────────────────────────── */
+    .revenue-card {
+      background: #F5F0FF;
+      border: 1px solid #C9B8F0;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 14px 0;
+    }
+    .revenue-card .revenue-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #5B3DAD;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .revenue-card .revenue-amount {
+      font-size: 22px;
+      font-weight: 800;
+      color: #5B3DAD;
+      margin: 4px 0;
+    }
+    .revenue-card .revenue-note {
+      font-size: 9.5px;
+      color: #7B6DAD;
+      margin-top: 6px;
+      font-style: italic;
+    }
+
+    /* ── Conversation summary cards ─────────────────────────────── */
+    .conv-card {
+      background: #F9F9F8;
+      border: 1px solid #E8E8E5;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .conv-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .conv-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #2D2D2B;
+    }
+    .conv-card-body { font-size: 10.5px; line-height: 1.5; }
+    .conv-card-body .row { margin-bottom: 2px; }
+    .conv-card-summary {
+      margin-top: 6px;
+      padding: 6px 10px;
+      background: white;
+      border-radius: 4px;
+      font-size: 10.5px;
+      color: #444;
+      line-height: 1.55;
+    }
+    .conv-card-action {
+      margin-top: 6px;
+      font-size: 10px;
+      color: #0F6E56;
+      font-style: italic;
+    }
+
+    /* ── Operational metrics (KPI row) ─────────────────────────── */
+    .ops-row {
+      display: flex;
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .ops-card {
+      flex: 1;
+      background: #F9F9F8;
+      border-radius: 6px;
+      padding: 9px 12px;
+      border-top: 3px solid #5DCAA5;
+      text-align: center;
+    }
+    .ops-card .val { font-size: 20px; font-weight: 700; color: #0F6E56; }
+    .ops-card .lbl { font-size: 10px; color: #888; margin-top: 2px; }
+    .ops-card .sub { font-size: 9px; color: #AAA; margin-top: 3px; font-style: italic; }
+
+    /* ── Customer questions list ────────────────────────────────── */
+    .questions-list {
+      list-style: none;
+      margin: 10px 0;
+    }
+    .questions-list li {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-bottom: 1px solid #F0F0ED;
+      font-size: 11px;
+    }
+    .questions-list li:nth-child(odd) { background: #FAFAF8; }
+    .questions-list .q-text { font-style: italic; color: #333; }
+    .questions-list .q-count { color: #0F6E56; font-weight: 600; white-space: nowrap; margin-left: 8px; }
+
+    /* ── Próximos Pasos ─────────────────────────────────────────── */
+    .next-steps-block {
+      background: linear-gradient(135deg, #0F6E56 0%, #1D9E75 100%);
+      color: white;
+      border-radius: 8px;
+      padding: 18px 22px;
+      margin: 20px 0 16px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .next-steps-block .block-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+      opacity: 0.95;
+    }
+    .next-steps-block ol {
+      margin-left: 18px;
+    }
+    .next-steps-block ol li {
+      margin-bottom: 10px;
+      font-size: 11px;
+      line-height: 1.55;
+      opacity: 0.92;
+    }
+    .next-steps-block .contact-line {
+      margin-top: 12px;
+      font-size: 10px;
+      opacity: 0.70;
+    }
+
+    /* ── Appendix formula box ───────────────────────────────────── */
+    .formula-box {
+      background: #F9F9F8;
+      border: 1px solid #E5E5E2;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 12px 0;
+      font-size: 10.5px;
+      line-height: 1.6;
+      color: #444;
+    }
+    .formula-box strong { color: #0F6E56; }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    .footer {
+      margin-top: 20px;
+      padding-top: 8px;
+      border-top: 1px solid #E0E0DD;
+      font-size: 10px;
+      color: #9A9A94;
+    }
+
+    /* ── Score breakdown ────────────────────────────────────────── */
+    .score-breakdown { margin: 14px 0; }
+    .score-breakdown h3 { font-size: 11px; font-weight: 700; color: #0F6E56; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+    .dim-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .dim-name { font-size: 10.5px; color: #444; min-width: 160px; }
+    .dim-bar-wrap { flex: 1; background: #F0F0ED; border-radius: 3px; height: 10px; overflow: hidden; }
+    .dim-bar-fill { height: 10px; border-radius: 3px; }
+    .dim-pts { font-size: 10px; color: #555; min-width: 50px; text-align: right; font-weight: 600; }
+    .dim-tag { font-size: 9px; font-style: italic; min-width: 90px; }
+    .dim-tag.strength { color: #1D9E75; }
+    .dim-tag.critical { color: #D85A30; }
+
+    /* ── Page 2+ section headers ────────────────────────────────── */
+    .page-title { font-size: 16px; font-weight: 800; color: #0F6E56; margin: 0 0 10px; }
+    .page-intro { font-size: 11px; color: #555; line-height: 1.6; margin-bottom: 14px; }
+
+    /* ── Hourly extremes ────────────────────────────────────────── */
+    .hourly-extremes { background: #F9F9F8; border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 11px; line-height: 1.7; }
+    .hourly-extremes .hour-slow { color: #D85A30; font-weight: 600; }
+    .hourly-extremes .hour-fast { color: #1D9E75; font-weight: 600; }
+
+    /* ── Strategic conversations ────────────────────────────────── */
+    .strat-conv { border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; break-inside: avoid; }
+    .strat-conv.best { background: #F0FAF6; border-left: 4px solid #1D9E75; }
+    .strat-conv.lost { background: #FDF2EE; border-left: 4px solid #D85A30; }
+    .strat-conv.typical { background: #FFFBF0; border-left: 4px solid #EF9F27; }
+    .strat-conv .cat-label { font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+    .strat-conv.best .cat-label { color: #0F6E56; }
+    .strat-conv.lost .cat-label { color: #B54020; }
+    .strat-conv.typical .cat-label { color: #B87410; }
+    .strat-conv .conv-meta { font-size: 10px; color: #666; margin-bottom: 6px; }
+    .strat-conv .conv-summary { font-size: 10.5px; color: #333; line-height: 1.55; margin-bottom: 6px; }
+    .strat-conv .conv-insight { font-size: 10px; color: #555; font-style: italic; }
+
+    /* ── Action plan ────────────────────────────────────────────── */
+    .action-plan-title { font-size: 22px; font-weight: 800; color: #0F6E56; margin-bottom: 6px; }
+    .action-card { background: #F9F9F8; border: 1px solid #E0E0DD; border-radius: 8px; padding: 14px 18px; margin-bottom: 14px; break-inside: avoid; }
+    .action-card .action-num { font-size: 13px; font-weight: 800; color: #0F6E56; }
+    .action-card .action-title { font-size: 13px; font-weight: 700; color: #1A1A18; margin-bottom: 10px; }
+    .action-card .action-situation { font-size: 10.5px; color: #555; margin-bottom: 3px; }
+    .action-card .action-target { font-size: 10.5px; color: #1D9E75; font-weight: 600; margin-bottom: 10px; }
+    .action-card .action-why-title { font-size: 10px; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    .action-card .action-why { font-size: 10.5px; color: #444; line-height: 1.5; margin-bottom: 10px; }
+    .action-card .action-steps-title { font-size: 10px; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    .action-card ul.action-steps { margin-left: 16px; margin-bottom: 10px; }
+    .action-card ul.action-steps li { font-size: 10.5px; color: #333; line-height: 1.55; margin-bottom: 3px; }
+    .action-card .action-impact { font-size: 10.5px; color: #1D9E75; font-weight: 600; }
+
+    /* ── Upsell box ─────────────────────────────────────────────── */
+    .upsell-box { background: #F0FAF6; border: 1px solid #A8DFC9; border-radius: 8px; padding: 14px 18px; margin-top: 18px; font-size: 10.5px; line-height: 1.6; color: #2D4A3E; }
+    .upsell-box .upsell-title { font-weight: 700; font-size: 11px; color: #0F6E56; margin-bottom: 6px; }
+
+    /* ── Inline market stat ─────────────────────────────────────── */
+    .market-inline { font-size: 10.5px; color: #555; font-style: italic; margin: 10px 0; line-height: 1.6; }
+
+    /* ── Section separators — flow naturally, no forced page breaks ── */
+    .page-section {
+      margin-top: 38px;
+      padding-top: 26px;
+      border-top: 2px solid #E5E5E2;
+    }
+    .page-title {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+
+    /* ── Benchmark footnote ─────────────────────────────────────── */
+    .benchmark-footnote {
+      font-size: 9px;
+      color: #AAAAAA;
+      margin-top: 18px;
+      line-height: 1.5;
+      border-top: 1px solid #EBEBEB;
+      padding-top: 6px;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 1 — DIAGNÓSTICO RÁPIDO (Página 1)
+       ══════════════════════════════════════════════════════════════════ -->
+
+  <!-- ── Cover ─────────────────────────────────────────────────────────── -->
+  <div class="cover">
+    <div class="cover-eyebrow">Informe de Análisis de Conversaciones</div>
+    <div class="cover-brand">DeepLook</div>
+    <div style="font-size:11px;opacity:0.65;margin:8px 0 2px;letter-spacing:0.3px;">Informe para:</div>
+    <div class="cover-business">{{ business_name }}</div>
+
+    <div class="health-block">
+      <div class="health-number">{{ health_score|round|int }}</div>
+      <div class="health-info">
+        <div class="health-slash">/ 100 — Puntaje de Salud</div>
+        <div class="health-rating">{{ health_label }}</div>
+      </div>
+    </div>
+
+    <div class="cover-meta">
+      Generado: {{ generated_at }} &nbsp;·&nbsp;
+      {{ total_conversations }} conversaci{{ 'ón' if total_conversations == 1 else 'ones' }} &nbsp;·&nbsp;
+      {{ total_messages }} mensajes
+    </div>
+
+    {% if one_line_summary %}
+    <div class="health-explanation">{{ one_line_summary }}</div>
+    {% elif health_explanation %}
+    <div class="health-explanation">{{ health_explanation }}</div>
+    {% endif %}
+  </div>
+
+  <!-- ── Sample size warning ───────────────────────────────────────────── -->
+  {% if sample_warning %}
+  <div class="warning-banner {{ sample_warning_level }}">
+    <strong>&#9888; Muestra {{ 'muy pequeña' if sample_warning_level == 'critical' else 'limitada' }}</strong>
+    <p style="margin-top:4px;">{{ sample_warning }}</p>
+  </div>
+  {% endif %}
+
+  <!-- ── Score breakdown ──────────────────────────────────────────────── -->
+  <div class="score-breakdown">
+    <h3>Desglose de tu puntaje: {{ health_score|round|int }}/100</h3>
+    {% for dim in score_breakdown %}
+    <div class="dim-row">
+      <span class="dim-name">{{ dim.name }}</span>
+      <div class="dim-bar-wrap">
+        <div class="dim-bar-fill" style="width:{{ dim.pct_of_max }}%;background:{{ dim.color }};"></div>
+      </div>
+      <span class="dim-pts">{{ dim.obtained_points }}/{{ dim.max_points }} pts</span>
+      <span class="dim-tag {% if dim.is_strength %}strength{% elif dim.is_critical %}critical{% endif %}">
+        {% if dim.is_strength %}&larr; Tu fortaleza{% elif dim.is_critical %}&larr; Área crítica{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ── KPI grid — 6 metric cards ────────────────────────────────────── -->
+  <div class="metrics-row">
+    <div class="metric-card {{ first_rt_status }}">
+      <div class="val">{{ first_rt_str }}</div>
+      <div class="lbl">Primera Respuesta <span class="dot {{ first_rt_status }}"></span></div>
+      <div class="bench">Benchmark Colombia: &lt;5 min</div>
+    </div>
+    <div class="metric-card {{ avg_rt_status }}">
+      <div class="val">{{ avg_response_time_str }}</div>
+      <div class="lbl">Respuesta Promedio <span class="dot {{ avg_rt_status }}"></span></div>
+      <div class="bench">Benchmark Colombia: &lt;15 min</div>
+    </div>
+    <div class="metric-card {{ sentiment_status }}">
+      <div class="val">{{ positive_pct }}%</div>
+      <div class="lbl">Sentimiento Positivo <span class="dot {{ sentiment_status }}"></span></div>
+      <div class="bench">Benchmark saludable: &gt;60%</div>
+    </div>
+  </div>
+  <div class="metrics-row" style="margin-top:9px;">
+    <div class="metric-card {{ conversion_status_color }}">
+      <div class="val">{{ conversion_rate }}%{% if small_sample_conversion %} <span style="font-size:10px;font-weight:400;">(muestra pequeña)</span>{% endif %}</div>
+      <div class="lbl">Tasa de Conversión <span class="dot {{ conversion_status_color }}"></span></div>
+      <div class="bench">Benchmark Colombia (MiPymes): 35-42%{% if small_sample_conversion %} — se recomiendan 20+ conv.{% endif %}</div>
+    </div>
+    <div class="metric-card {{ unanswered_status }}">
+      <div class="val">{{ total_unanswered }}</div>
+      <div class="lbl">Sin Responder <span class="dot {{ unanswered_status }}"></span></div>
+      <div class="bench">Objetivo: 0</div>
+    </div>
+    <div class="metric-card {{ quality_status }}">
+      <div class="val">{% if avg_quality %}{{ avg_quality }}/10{% else %}N/A{% endif %}</div>
+      <div class="lbl">Calidad Promedio <span class="dot {{ quality_status }}"></span></div>
+      <div class="bench">Objetivo: &gt;7.0/10</div>
+    </div>
+  </div>
+
+  {# F1 — comparison vs previous report (only when a prior completed job exists) #}
+  {% if previous_comparison %}
+  <div style="background:#F4F8F6;border:1px solid #D6E5DD;border-radius:8px;padding:12px 14px;margin-top:14px;">
+    <div style="font-weight:700;font-size:12px;color:#0F6E56;margin-bottom:8px;">
+      Cambio vs reporte anterior ({{ previous_comparison.previous_date or '—' }})
+    </div>
+    <table style="width:100%;font-size:10.5px;border-collapse:collapse;">
+      <tr style="color:#555;">
+        <th style="text-align:left;padding:3px 6px;font-weight:600;">Métrica</th>
+        <th style="text-align:right;padding:3px 6px;font-weight:600;">Anterior</th>
+        <th style="text-align:right;padding:3px 6px;font-weight:600;">Actual</th>
+        <th style="text-align:right;padding:3px 6px;font-weight:600;">Cambio</th>
+      </tr>
+      {% macro delta_cell(d) -%}
+        {%- if d is none -%}
+          <span style="color:#999;">—</span>
+        {%- elif d.direction == 'flat' -%}
+          <span style="color:#999;">{{ d.label }}</span>
+        {%- elif d.direction == 'up' and d.label in ('mejoró','subió') -%}
+          <span style="color:#0F6E56;font-weight:700;">▲ {{ '%+.1f' % d.value }}</span>
+        {%- elif d.direction == 'down' and d.label == 'mejoró' -%}
+          <span style="color:#0F6E56;font-weight:700;">▼ {{ '%+.1f' % d.value }}</span>
+        {%- else -%}
+          <span style="color:#D85A30;font-weight:700;">▼ {{ '%+.1f' % d.value }}</span>
+        {%- endif -%}
+      {%- endmacro %}
+      <tr><td style="padding:3px 6px;">Puntaje de salud</td>
+          <td style="text-align:right;padding:3px 6px;">{% if previous_comparison.health_delta %}{{ '%g' % (health_score - previous_comparison.health_delta.value if previous_comparison.health_delta.direction == 'up' else health_score + previous_comparison.health_delta.value) }}{% else %}—{% endif %}</td>
+          <td style="text-align:right;padding:3px 6px;font-weight:700;">{{ health_score|round|int }}</td>
+          <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.health_delta) }}</td></tr>
+      <tr><td style="padding:3px 6px;">Conversión (%)</td>
+          <td style="text-align:right;padding:3px 6px;">{% if previous_comparison.conversion_delta %}{{ '%g' % (conversion_rate - previous_comparison.conversion_delta.value if previous_comparison.conversion_delta.direction == 'up' else conversion_rate + previous_comparison.conversion_delta.value) }}%{% else %}—{% endif %}</td>
+          <td style="text-align:right;padding:3px 6px;font-weight:700;">{{ conversion_rate }}%</td>
+          <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.conversion_delta) }}</td></tr>
+      <tr><td style="padding:3px 6px;">Sentimiento positivo (%)</td>
+          <td style="text-align:right;padding:3px 6px;">{% if previous_comparison.positive_pct_delta %}{{ '%g' % (positive_pct - previous_comparison.positive_pct_delta.value if previous_comparison.positive_pct_delta.direction == 'up' else positive_pct + previous_comparison.positive_pct_delta.value) }}%{% else %}—{% endif %}</td>
+          <td style="text-align:right;padding:3px 6px;font-weight:700;">{{ positive_pct }}%</td>
+          <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.positive_pct_delta) }}</td></tr>
+      <tr><td style="padding:3px 6px;">Primera respuesta</td>
+          <td style="text-align:right;padding:3px 6px;">{{ previous_comparison.frt_prev_str }}</td>
+          <td style="text-align:right;padding:3px 6px;font-weight:700;">{{ previous_comparison.frt_curr_str }}</td>
+          <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.frt_delta) }}</td></tr>
+      <tr><td style="padding:3px 6px;">Conversaciones sin responder</td>
+          <td style="text-align:right;padding:3px 6px;">{% if previous_comparison.unanswered_delta %}{{ (total_unanswered - previous_comparison.unanswered_delta.value)|round|int if previous_comparison.unanswered_delta.direction == 'up' else (total_unanswered + previous_comparison.unanswered_delta.value)|round|int }}{% else %}—{% endif %}</td>
+          <td style="text-align:right;padding:3px 6px;font-weight:700;">{{ total_unanswered }}</td>
+          <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.unanswered_delta) }}</td></tr>
+    </table>
+    <p style="font-size:9.5px;color:#666;margin:6px 0 0;line-height:1.5;">
+      Comparación con tu reporte anterior — {{ previous_comparison.previous_total_conversations }} conversaciones evaluadas en ese período.
+    </p>
+  </div>
+  {% endif %}
+
+  <!-- ── Benchmark footnote ────────────────────────────────────────────── -->
+  <div class="benchmark-footnote">
+    Benchmarks Colombia MiPymes: Primera respuesta &lt;5 min · Conversión 35-42% · Sentimiento positivo &gt;60% · Calidad &gt;7.0/10.<br>
+    Fuentes: Aurora Inbox LATAM 2026, Hyperleap AI 2025, Meta Business Reports 2025.
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 2 — VELOCIDAD DE RESPUESTA (Página 2)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="page-title">&#128202; Velocidad de Respuesta — Dónde se pierden las ventas</div>
+    <div class="page-intro">
+      La velocidad de respuesta es el factor número uno que determina si un cliente compra o se va a la competencia.
+      La <strong>primera respuesta</strong> mide cuánto tarda el negocio en contestar desde que llega el primer mensaje del cliente.
+      El <strong>percentil 95</strong> significa que el 95% de tus respuestas son más rápidas que ese valor.
+    </div>
+
+    <!-- Response time table -->
+    <table>
+      <tr>
+        <th>Métrica</th>
+        <th>Valor</th>
+        <th>Benchmark Colombia</th>
+        <th>Estado</th>
+      </tr>
+      <tr>
+        <td><strong>Primera respuesta (promedio)</strong></td>
+        <td>{{ first_rt_str }}</td>
+        <td class="bench-cell">&lt; 5 minutos</td>
+        <td><span class="dot {{ first_rt_status }}"></span></td>
+      </tr>
+      <tr>
+        <td>Primera respuesta (mediana)</td>
+        <td>{{ median_first_rt_str }}</td>
+        <td class="bench-cell">&lt; 5 minutos</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>Tiempo promedio de respuesta</td>
+        <td>{{ avg_response_time_str }}</td>
+        <td class="bench-cell">&lt; 15 minutos</td>
+        <td><span class="dot {{ avg_rt_status }}"></span></td>
+      </tr>
+      <tr>
+        <td>Mediana de respuesta</td>
+        <td>{{ median_response_time_str }}</td>
+        <td class="bench-cell"></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>Percentil 95 de respuesta</td>
+        <td>{{ p95_response_time_str }}</td>
+        <td class="bench-cell"></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>Conversaciones sin responder</td>
+        <td>{{ total_unanswered }}</td>
+        <td class="bench-cell">0</td>
+        <td><span class="dot {{ unanswered_status }}"></span></td>
+      </tr>
+    </table>
+
+    <!-- Response time chart -->
+    {% if chart_response_time %}
+    <div class="chart-container">
+      <img src="data:image/png;base64,{{ chart_response_time }}" alt="Tiempo de respuesta por hora">
+    </div>
+    {% endif %}
+
+    <!-- Slowest/fastest hour analysis -->
+    {% if slowest_hour_text or fastest_hour_text %}
+    <div class="hourly-extremes">
+      {% if slowest_hour_text %}
+      <div class="hour-slow">&#9650; {{ slowest_hour_text }}</div>
+      {% endif %}
+      {% if fastest_hour_text %}
+      <div class="hour-fast">&#9660; {{ fastest_hour_text }}</div>
+      {% endif %}
+      {% if variability_text %}
+      <div style="margin-top:6px;color:#555;">{{ variability_text }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# F3 — first-response-time distribution. Shows whether the average is honest. #}
+    {% if frt_distribution and total_conversations > 0 %}
+    <div style="margin-top:14px;">
+      <div style="font-weight:700;font-size:11px;color:#0F6E56;margin-bottom:6px;">
+        Distribución de la primera respuesta (todos tus chats)
+      </div>
+      <table style="width:100%;font-size:10.5px;border-collapse:collapse;">
+        {% for bucket in frt_distribution %}
+        <tr>
+          <td style="padding:3px 8px 3px 0;width:32%;">{{ bucket.label }}</td>
+          <td style="padding:3px 0;width:50%;">
+            <div style="background:#EEE;border-radius:3px;height:9px;overflow:hidden;">
+              <div style="height:100%;width:{{ bucket.pct }}%;background:{% if bucket.color == 'green' %}#1D9E75{% elif bucket.color == 'amber' %}#EF9F27{% else %}#D85A30{% endif %};"></div>
+            </div>
+          </td>
+          <td style="padding:3px 0 3px 8px;text-align:right;width:18%;font-weight:600;color:#333;">
+            {{ bucket.count }} ({{ bucket.pct }}%)
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p style="font-size:9.5px;color:#666;margin:6px 0 0;line-height:1.5;">
+        Un promedio puede esconder dos realidades muy distintas. Esta distribución muestra qué tan repartidos están tus tiempos de respuesta — y dónde están las oportunidades concretas de mejora.
+      </p>
+    </div>
+    {% endif %}
+
+    {# WAHA-derived deterministic signals — only rendered when we have real ack data #}
+    {% if has_waha_metrics %}
+    <div style="margin-top:14px;background:#F8F8F4;border:1px solid #E5E5DD;border-radius:8px;padding:10px 12px;">
+      <div style="font-weight:700;font-size:11px;color:#0F6E56;margin-bottom:6px;">
+        Señales directas de WhatsApp (entregas, lecturas y ghosting)
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:#333;line-height:1.55;">
+        {% if avg_delivery_rate is not none %}
+        <div style="flex:1;min-width:130px;">
+          <div style="font-weight:700;font-size:13px;color:#0F6E56;">{{ avg_delivery_rate }}%</div>
+          <div>Tasa de entrega de tus respuestas</div>
+        </div>
+        {% endif %}
+        {% if avg_read_rate is not none %}
+        <div style="flex:1;min-width:130px;">
+          <div style="font-weight:700;font-size:13px;color:#0F6E56;">{{ avg_read_rate }}%</div>
+          <div>Mensajes leídos por el cliente</div>
+        </div>
+        {% endif %}
+        <div style="flex:1;min-width:130px;">
+          <div style="font-weight:700;font-size:13px;color:{% if ghosted_count > 0 %}#D85A30{% else %}#0F6E56{% endif %};">{{ ghosted_count }}</div>
+          <div>Conversaciones con <em>ghosting</em> (cliente leyó y no respondió)</div>
+        </div>
+        {% if avg_out_of_hours_pct is not none %}
+        <div style="flex:1;min-width:130px;">
+          <div style="font-weight:700;font-size:13px;color:#333;">{{ avg_out_of_hours_pct }}%</div>
+          <div>Mensajes del cliente fuera de horario laboral</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Market stat as inline text -->
+    <p class="market-inline">
+      Para contexto: el 78% de los consumidores colombianos compra del primer negocio que responde.
+      Las empresas que responden en menos de 5 minutos tienen 65% más probabilidad de cerrar la venta.
+      (Fuente: Aurora Inbox LATAM 2026 — datos Colombia)
+    </p>
+
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 3 — SENTIMIENTO Y CALIDAD (Página 3)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="page-title">&#128172; ¿Qué piensan tus clientes? — Sentimiento y Calidad</div>
+    <div class="page-intro">
+      El <strong>sentimiento</strong> refleja cómo terminó la conversación desde la perspectiva del cliente, evaluado por IA.
+      La <strong>calidad</strong> puntúa tres dimensiones de la respuesta: utilidad, tono y completitud. La velocidad se mide por separado con los timestamps reales — ver la sección "Velocidad de Respuesta".
+      Estas métricas revelan la experiencia real del cliente más allá de si compró o no.
+    </div>
+
+    <!-- 4 KPI cards -->
+    <div class="metrics-row" style="margin-bottom:7px;">
+      <div class="metric-card green">
+        <div class="val">{{ positive_pct }}%{% if sample_warning %} <span style="font-size:9px;font-weight:400;">(muestra)</span>{% endif %}</div>
+        <div class="lbl">Positivo</div>
+      </div>
+      <div class="metric-card gray">
+        <div class="val">{{ neutral_pct }}%</div>
+        <div class="lbl">Neutral</div>
+      </div>
+      <div class="metric-card {% if negative_pct > 20 %}red{% elif negative_pct > 10 %}amber{% else %}green{% endif %}">
+        <div class="val">{{ negative_pct }}%{% if sample_warning %} <span style="font-size:9px;font-weight:400;">(muestra)</span>{% endif %}</div>
+        <div class="lbl">Negativo
+          <span class="dot {% if negative_pct > 20 %}red{% elif negative_pct > 10 %}amber{% else %}green{% endif %}"></span>
+        </div>
+        <div class="bench">Umbral crítico: &gt;20%</div>
+      </div>
+      <div class="metric-card {{ quality_status }}">
+        <div class="val">{% if avg_quality %}{{ avg_quality }}/10{% else %}N/A{% endif %}</div>
+        <div class="lbl">Calidad Promedio <span class="dot {{ quality_status }}"></span></div>
+        <div class="bench">Objetivo: &gt;7.0</div>
+      </div>
+    </div>
+
+    <!-- Neutral majority note -->
+    {% if neutral_majority_note %}
+    <div class="callout" style="margin-top:10px;">{{ neutral_majority_note }}</div>
+    {% endif %}
+
+    <!-- Donut chart -->
+    {% if chart_sentiment %}
+    <div class="chart-container">
+      <img src="data:image/png;base64,{{ chart_sentiment }}" alt="Distribución de sentimiento">
+    </div>
+    {% endif %}
+
+    <!-- Quality bars chart -->
+    {% if chart_quality %}
+    <div class="chart-container">
+      <img src="data:image/png;base64,{{ chart_quality }}" alt="Desglose de calidad">
+    </div>
+    {% endif %}
+
+    <!-- Strategic conversations -->
+    {% if strategic_convs %}
+    <div style="margin-top:16px;">
+      <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">Conversaciones destacadas</strong>
+      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 10px;"></div>
+      {% for conv in strategic_convs %}
+      <div class="strat-conv {% if conv.category == 'LA MEJOR' %}best{% elif conv.category == 'OPORTUNIDAD PERDIDA' %}lost{% else %}typical{% endif %}">
+        <div class="cat-label">{{ conv.label }}</div>
+        {% if conv.reference %}
+        <div style="font-size:10px;color:#666;margin:2px 0 4px;">
+          &#128100; {{ conv.reference }}
+        </div>
+        {% endif %}
+        <div class="conv-meta">
+          <strong>Tema:</strong> {{ conv.topic }} &nbsp;·&nbsp;
+          <strong>1ª respuesta:</strong> {{ conv.first_rt }} &nbsp;·&nbsp;
+          <strong>Calidad:</strong> {{ conv.quality }} &nbsp;·&nbsp;
+          <strong>Sentimiento:</strong> {{ conv.sentiment_label }} &nbsp;·&nbsp;
+          <strong>Estado:</strong> {{ conv.status_label }}
+        </div>
+        {% if conv.summary %}
+        <div class="conv-summary">{{ conv.summary }}</div>
+        {% endif %}
+        <div class="conv-insight">&#128161; {{ conv.insight }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 4 — TEMAS + CONVERSIÓN + OPERATIVOS (Página 4)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="page-title">&#127919; ¿Qué preguntan tus clientes y cuántos compran?</div>
+    <div class="page-intro">
+      Esta sección muestra los temas más frecuentes de tus clientes, tu tasa de conversión real vs. el benchmark colombiano,
+      y los datos operativos de tu canal. Usa esta información para priorizar qué mejorar primero.
+    </div>
+
+    <!-- Topics -->
+    <div class="section-title">Temas de Conversación</div>
+    <p class="section-explain">Los temas más frecuentes en las consultas de tus clientes. Crear respuestas rápidas en WhatsApp Business para los temas dominantes puede reducir tu tiempo de respuesta a segundos.</p>
+    {% if single_topic_callout %}
+    <div class="callout">
+      {{ single_topic_callout }}
+      Considera crear una respuesta rápida o un catálogo en WhatsApp Business con esta información — así puedes enviarla en segundos.
+    </div>
+    {% elif chart_topics %}
+    <div class="chart-container">
+      <img src="data:image/png;base64,{{ chart_topics }}" alt="Temas principales de conversación">
+    </div>
+    {% endif %}
+
+    <!-- Customer questions -->
+    {% set repeated_questions = top_questions | selectattr('1', 'ge', 2) | list %}
+    {% if repeated_questions %}
+    <div style="margin-top:12px;">
+      <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">Preguntas más frecuentes de tus clientes</strong>
+      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      <ul class="questions-list">
+        {% for q, count in top_questions %}
+        {% if count >= 2 %}
+        <li>
+          <span class="q-text">{{ loop.index }}. "{{ q }}"</span>
+          <span class="q-count">— {{ count }} {{ 'vez' if count == 1 else 'veces' }}</span>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <p style="font-size:10.5px;color:#777;font-style:italic;margin:8px 0 12px;">
+      Las preguntas de tus clientes son variadas — no hay un patrón dominante. Esto sugiere que cada cliente tiene necesidades específicas.
+    </p>
+    {% endif %}
+
+    <!-- Conversion section -->
+    <div class="section-title">Análisis de Conversión</div>
+    <p class="section-explain">La <strong>tasa de conversión</strong> mide qué porcentaje de las conversaciones con intención de compra resultaron en una venta confirmada. Las conversaciones "pendientes" son oportunidades activas.</p>
+
+    <div class="metrics-row">
+      <div class="metric-card gray">
+        <div class="val">{{ total_conversations }}</div>
+        <div class="lbl">Conversaciones totales</div>
+      </div>
+      <div class="metric-card gray">
+        <div class="val">{{ applicable_count }}</div>
+        <div class="lbl">Con intención de compra</div>
+      </div>
+      <div class="metric-card {{ conversion_status_color }}">
+        <div class="val">{{ converted_count }}</div>
+        <div class="lbl">Convertidas <span class="dot {{ conversion_status_color }}"></span></div>
+        <div class="bench">Tasa: {{ conversion_rate }}% · Benchmark Colombia: 35-42%{% if small_sample_conversion %} (muestra pequeña){% endif %}</div>
+      </div>
+      <div class="metric-card {{ unanswered_status }}">
+        <div class="val">{{ total_unanswered }}</div>
+        <div class="lbl">Sin Responder <span class="dot {{ unanswered_status }}"></span></div>
+        <div class="bench">Objetivo: 0 conversaciones</div>
+      </div>
+    </div>
+
+    {% if all_applicable_pending and applicable_count > 0 %}
+    <div class="callout warn" style="margin-top:10px;">
+      Las {{ applicable_count }} conversaci{{ 'ón' if applicable_count == 1 else 'ones' }} con intención de compra están <strong>pendientes</strong> — el cliente mostró interés pero aún no se ha confirmado la venta. Haz un seguimiento directo a estos clientes para cerrar las oportunidades abiertas.
+    </div>
+    {% endif %}
+
+    {% if conversion_text %}
+    <p style="font-size:10.5px;color:#555;line-height:1.6;margin:10px 0;">{{ conversion_text }}</p>
+    {% endif %}
+
+    {% if lost_reasons_summary %}
+    <div style="margin-top:14px;">
+      <strong style="font-size:11px;color:#2D2D2B;">Principales razones de pérdida</strong>
+      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      <ul class="questions-list">
+        {% for reason, count in lost_reasons_summary %}
+        <li>
+          <span class="q-text">{{ reason }}</span>
+          <span class="q-count">{{ count }} conv.</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Operational data -->
+    <div class="section-title">Datos Operativos</div>
+
+    <div class="ops-row">
+      <div class="ops-card">
+        <div class="val">{{ msgs_per_conv }}</div>
+        <div class="lbl">Mensajes por conversación</div>
+        <div class="sub">{{ msgs_per_conv_label }} · Normal: 8-15</div>
+      </div>
+      {% if busiest_hour_str %}
+      <div class="ops-card">
+        <div class="val">{{ busiest_hour_str }}</div>
+        <div class="lbl">Hora más activa</div>
+        <div class="sub">{% if limited_hourly_data %}(datos limitados){% else %}Pico de consultas{% endif %}</div>
+      </div>
+      {% endif %}
+      {% if business_hours_pct is not none %}
+      <div class="ops-card">
+        <div class="val">{{ business_hours_pct }}%</div>
+        <div class="lbl">Mensajes en horario laboral</div>
+        <div class="sub">8 AM – 6 PM{% if limited_hourly_data %} (datos limitados){% endif %}</div>
+      </div>
+      {% endif %}
+      <div class="ops-card">
+        <div class="val">{{ total_inbound }}</div>
+        <div class="lbl">Mensajes de clientes</div>
+        <div class="sub">vs. {{ total_outbound }} del negocio</div>
+      </div>
+    </div>
+
+    {% if operational_text %}
+    <p style="font-size:10.5px;color:#555;line-height:1.6;margin:10px 0;">{{ operational_text }}</p>
+    {% endif %}
+
+    <!-- Market stat as inline text -->
+    <p class="market-inline">
+      El 74% de los negocios en Colombia venden por WhatsApp. La tasa de conversión promedio con atención humana
+      es del 35-42% en MiPymes colombianas. (Fuente: Estadísticas WhatsApp ecommerce LATAM 2025)
+    </p>
+
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 5 — PLAN DE ACCIÓN (Página 5)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="action-plan-title">&#128640; Tu Plan de Acción</div>
+    <p style="font-size:11px;color:#555;margin-bottom:18px;line-height:1.6;">
+      Basado en tu puntaje de salud de <strong>{{ health_score|round|int }}/100</strong>, estas son las 3 acciones con mayor impacto
+      en tus resultados. Están ordenadas de mayor a menor urgencia según tus datos reales.
+    </p>
+
+    {% if action_plan %}
+    {% for action in action_plan %}
+    <div class="action-card">
+      <div class="action-num">ACCIÓN {{ action.number }}</div>
+      <div class="action-title">{{ action.title }}</div>
+      <div class="action-situation">&#128197; Situación actual: {{ action.current_value }}</div>
+      <div class="action-target">&#127945; Objetivo: {{ action.target }}</div>
+      <div class="action-why-title">Por qué importa:</div>
+      <div class="action-why">{{ action.why }}</div>
+      <div class="action-steps-title">Cómo hacerlo:</div>
+      <ul class="action-steps">
+        {% for step in action.steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+      </ul>
+      <div class="action-impact">&#128176; Impacto estimado: {{ action.impact }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Upsell / progress callout -->
+    <div class="upsell-box">
+      <div class="upsell-title">&#128200; ¿Cómo saber si estas acciones están funcionando?</div>
+      <p>
+        Programa tu próximo análisis en 30 días para medir el impacto de estos cambios.
+        Con el <strong>Plan Básico de DeepLook</strong> ($160,000 COP/mes) recibes un reporte mensual
+        con comparación de tendencias y seguimiento de tu puntaje de salud a lo largo del tiempo.<br>
+        <strong>Contáctanos:</strong> contacto@deeplook.co
+      </p>
+    </div>
+
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 6 — APÉNDICE TÉCNICO (Página 6)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="page-title">&#128203; Apéndice Técnico</div>
+
+    <!-- Analysis data table -->
+    <strong style="font-size:11px;color:#2D2D2B;">Datos del Análisis</strong>
+    <table style="margin-top:6px;">
+      <tr><th>Detalle</th><th>Valor</th></tr>
+      <tr><td>Archivos procesados</td><td>{{ files_processed }}</td></tr>
+      <tr><td>Conversaciones analizadas</td><td>{{ total_conversations }}</td></tr>
+      <tr><td>Mensajes totales</td><td>{{ total_messages }}</td></tr>
+      <tr><td>Mensajes entrantes (clientes)</td><td>{{ total_inbound }}</td></tr>
+      <tr><td>Mensajes salientes (negocio)</td><td>{{ total_outbound }}</td></tr>
+      <tr><td>Período analizado</td><td>{{ period_start }}{% if period_end != period_start %} — {{ period_end }}{% endif %}</td></tr>
+      <tr><td>Fecha de generación</td><td>{{ generated_at }}</td></tr>
+      <tr><td>Confianza del análisis</td><td>{{ confidence_level }}</td></tr>
+      <tr><td>Versión del reporte</td><td>{{ report_version }}</td></tr>
+    </table>
+
+    <!-- Health score formula box -->
+    <div class="formula-box" style="margin-top:14px;">
+      <strong>Cómo se calcula el Puntaje de Salud (0-100)</strong><br><br>
+      El puntaje es un promedio ponderado de seis dimensiones:<br><br>
+      <strong>• Velocidad de respuesta (25%):</strong> Basado en el tiempo promedio de primera respuesta.
+      Menos de 2 min = 100, menos de 5 min = 85, menos de 15 min = 65,
+      menos de 30 min = 45, menos de 1 hora = 25, más de 1 hora = 10.<br><br>
+      <strong>• Cobertura de respuestas (15%):</strong> Basado en el porcentaje de <em>conversaciones</em> que terminaron sin respuesta del negocio (a nivel de chat, no de mensaje).
+      0% sin responder = 100, menos del 5% = 85, menos del 10% = 65, menos del 20% = 40, más del 20% = 15.<br><br>
+      <strong>• Sentimiento del cliente (20%):</strong> Porcentaje de conversaciones positivas (×100) más neutrales (×50).<br><br>
+      <strong>• Calidad de atención (15%):</strong> Promedio de calidad (0-10) multiplicado por 10.<br><br>
+      <strong>• Efectividad de conversión (15%):</strong> Porcentaje de conversaciones convertidas
+      (excluyendo las no aplicables).<br><br>
+      <strong>• Cobertura horaria (10%):</strong> Si el negocio responde fuera de horario o tiene
+      respuestas automáticas configuradas (estimado en 50 cuando no es detectable desde .txt).
+    </div>
+
+    <!-- Colombia benchmarks paragraph -->
+    <div style="margin-top:12px;font-size:10px;color:#999;line-height:1.6;">
+      <strong>Benchmarks Colombia (MiPymes):</strong>
+      El 87% de las MiPymes en Colombia usan WhatsApp como canal principal de ventas.
+      El 65% de los consumidores colombianos esperan respuesta en menos de 5 minutos.
+      Primera respuesta ideal: &lt;5 min · Tasa de conversión efectiva con atención humana: 35-42%.<br>
+      Fuentes: Aurora Inbox LATAM 2026, Hyperleap AI 2025, Meta Business Reports 2025.
+    </div>
+
+    <!-- Confidentiality disclaimer -->
+    <div style="margin-top:8px;font-size:10px;color:#999;line-height:1.5;">
+      <em>Confidencial — Uso interno del negocio. Este reporte contiene información de conversaciones privadas
+      de clientes y debe tratarse con reserva. No distribuir sin autorización del propietario del negocio.</em>
+    </div>
+
+    <div class="footer">
+      Reporte generado por <strong>DeepLook</strong> — WhatsApp Business Analytics · deeplook.co<br>
+      Confidencial · Uso interno del negocio · Análisis generado con inteligencia artificial · v{{ report_version }}
+    </div>
+
+  </div>
+
+</div>
+</body>
+</html>

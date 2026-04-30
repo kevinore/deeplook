@@ -1,0 +1,112 @@
+/* DeepLook Report Styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 13px;
+    color: #2D2D2B;
+    background: #fff;
+    line-height: 1.5;
+}
+
+/* --- Page layout --- */
+.page { padding: 32px 40px; max-width: 800px; margin: 0 auto; }
+
+/* --- Cover --- */
+.cover {
+    background: linear-gradient(135deg, #0F6E56, #1D9E75);
+    color: white;
+    padding: 60px 40px;
+    min-height: 280px;
+    border-radius: 8px;
+    margin-bottom: 32px;
+}
+.cover h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+.cover h2 { font-size: 18px; font-weight: 500; opacity: 0.85; margin-bottom: 20px; }
+.cover .meta { font-size: 12px; opacity: 0.7; }
+
+/* --- Section headings --- */
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0F6E56;
+    margin: 32px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #5DCAA5;
+}
+
+/* --- Health score --- */
+.health-score-block {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    background: #F0FAF6;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+.health-score-number {
+    font-size: 52px;
+    font-weight: 700;
+    line-height: 1;
+}
+.health-score-number.high { color: #0F6E56; }
+.health-score-number.medium { color: #D8A030; }
+.health-score-number.low { color: #D85A30; }
+.health-score-label { font-size: 13px; color: #888780; }
+
+/* --- Key metrics row --- */
+.metrics-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+.metric-card {
+    flex: 1;
+    min-width: 140px;
+    background: #F9F9F8;
+    border-radius: 8px;
+    padding: 14px 16px;
+    border-left: 3px solid #1D9E75;
+}
+.metric-card .value { font-size: 22px; font-weight: 700; color: #0F6E56; }
+.metric-card .label { font-size: 11px; color: #888780; margin-top: 2px; }
+
+/* --- Charts --- */
+.chart-container { margin: 16px 0; text-align: center; }
+.chart-container img { max-width: 100%; border-radius: 4px; }
+
+/* --- Recommendations --- */
+.rec-list { list-style: none; }
+.rec-list li {
+    background: #F0FAF6;
+    border-left: 4px solid #1D9E75;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+/* --- Alerts --- */
+.alert-list { list-style: none; }
+.alert-list li {
+    background: #FDF2EE;
+    border-left: 4px solid #D85A30;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+}
+
+/* --- Table --- */
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+th { background: #0F6E56; color: white; padding: 8px 10px; text-align: left; font-weight: 600; }
+td { padding: 7px 10px; border-bottom: 1px solid #EEE; }
+tr:nth-child(even) td { background: #F9F9F8; }
+
+/* --- Footer --- */
+.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #DDD; font-size: 11px; color: #888780; }

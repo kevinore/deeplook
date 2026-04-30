@@ -39,8 +39,12 @@ dmypy.json
 
 # Uploads & generated files
 uploads/
-reports/
+/reports/
 *.pdf
+# Un-ignore the source package — /reports/ above blocks any top-level reports/ dir,
+# but app/delivery/reports/ is source code and must be tracked.
+!app/delivery/reports/
+!app/delivery/reports/**
 
 # Logs
 *.log
