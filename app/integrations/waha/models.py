@@ -91,7 +91,7 @@ class WahaChatOverview(BaseModel):
     def coerce_id(cls, v: Any) -> str:
         return _coerce_jid(v)
 
-    @field_validator("timestamp", mode="before")
+    @field_validator("timestamp", "muteExpiration", mode="before")
     @classmethod
     def coerce_ts(cls, v: Any) -> int:
         if v is None:
@@ -101,13 +101,11 @@ class WahaChatOverview(BaseModel):
         except (TypeError, ValueError):
             return 0
 
-    @field_validator("isGroup", mode="before")
+    @field_validator("isGroup", "isReadOnly", "archived", "pinned", "isLocked", "isMuted", mode="before")
     @classmethod
-    def derive_is_group(cls, v: Any, info) -> bool:
-        # Some WAHA versions omit `isGroup`; derive it from the JID suffix as a fallback.
-        if isinstance(v, bool):
-            return v
-        # info.data is filled progressively — id may not be there yet, but we'll catch via @model_validator
+    def coerce_bool(cls, v: Any) -> bool:
+        if v is None:
+            return False
         return bool(v)
 
 
