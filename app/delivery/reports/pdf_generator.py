@@ -1,6 +1,7 @@
 """
 PDF report generator: Jinja2 HTML template → WeasyPrint → PDF bytes.
 """
+import base64
 import logging
 import statistics
 from collections import Counter
@@ -30,6 +31,13 @@ from app.models.schemas import ConversationAnalysisResult
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+# Brand logo, embedded as a data URI so the PDF is self-contained (no base_url needed by WeasyPrint).
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "logo" / "logo-horizontal-landing.png"
+try:
+    _LOGO_DATA_URI = "data:image/png;base64," + base64.b64encode(_LOGO_PATH.read_bytes()).decode("ascii")
+except OSError:
+    _LOGO_DATA_URI = ""  # Logo missing → cover renders without it; not fatal.
 
 # Minimum conversations for a reliable conversion rate
 MIN_RELIABLE_CONV = 20
@@ -513,7 +521,7 @@ def generate_pdf_report(
             ("5_to_30min",   "5–30 min",       "amber"),
             ("30min_to_2h",  "30 min – 2 h",   "amber"),
             ("gt_2h",        ">2 h",           "red"),
-            ("no_reply",     "Sin respuesta",  "red"),
+            ("no_reply",     "Nunca respondido",  "red"),
         )
     ]
 
@@ -1017,6 +1025,8 @@ def generate_pdf_report(
         "avg_out_of_hours_pct": avg_out_of_hours_pct,
         # F1 — comparison with previous completed report
         "previous_comparison": previous_comparison,
+        # Brand logo (data URI; empty string if asset missing)
+        "logo_data_uri": _LOGO_DATA_URI,
     }
 
     env = Environment(loader=FileSystemLoader(str(_TEMPLATES_DIR)))

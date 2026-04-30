@@ -24,9 +24,9 @@ matplotlib.use("Agg")
 
 
 # ── Color palette ─────────────────────────────────────────────────────────────
-TEAL = "#1D9E75"
-TEAL_DARK = "#0F6E56"
-TEAL_LIGHT = "#5DCAA5"
+TEAL = "#16a34a"
+TEAL_DARK = "#15803d"
+TEAL_LIGHT = "#86efac"
 AMBER = "#EF9F27"
 CORAL = "#D85A30"
 GRAY = "#6B7280"
@@ -285,7 +285,7 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
         for center, name in segment_centers:
             ax.text(center, max_val * 1.20, name,
                     ha="center", va="bottom",
-                    fontsize=9, fontweight="700", color="#0F6E56")
+                    fontsize=9, fontweight="700", color="#0e0749")
 
         # X-axis: rotated labels so they never overlap regardless of bar count.
         ax.set_xticks(positions)
