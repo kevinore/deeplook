@@ -46,7 +46,7 @@ class WahaClient:
                     "markOnline": False,
                     "store": {
                         "enabled": True,
-                        "fullSync": False,
+                        "fullSync": True,
                     },
                 },
                 "client": {

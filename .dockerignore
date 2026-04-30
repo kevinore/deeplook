@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# Environment files — NEVER include in the image (contain API keys/secrets)
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+dist
+build
+
+# Virtual environments
+.venv
+venv
+env
+
+# Development tools
+.ruff_cache
+.mypy_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# WAHA sessions (local dev only, production uses PostgreSQL)
+waha-sessions
+
+# Alembic compiled cache
+alembic/__pycache__
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs and non-runtime files
+*.md
+docs
+scripts
+
+# Test files
+tests
