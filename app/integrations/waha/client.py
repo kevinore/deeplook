@@ -32,6 +32,16 @@ class WahaClient:
         if response.status_code >= 400:
             raise WahaError(f"WAHA API error {response.status_code}: {response.text}", response.status_code)
 
+    def _json(self, response: httpx.Response) -> dict:
+        """Parse JSON from response, raising WahaError on empty or invalid body."""
+        try:
+            return response.json()
+        except Exception as exc:
+            raise WahaError(
+                f"WAHA returned non-JSON response (status {response.status_code}): {response.text!r:.200}",
+                response.status_code,
+            ) from exc
+
     async def create_session(self, name: str, client_id: str) -> WahaSessionInfo:
         """
         Create and immediately start a WAHA NOWEB session.
@@ -60,17 +70,17 @@ class WahaClient:
         }
         r = await self._client.post("/api/sessions", json=body)
         self._check(r)
-        return WahaSessionInfo.model_validate(r.json())
+        return WahaSessionInfo.model_validate(self._json(r))
 
     async def get_session(self, name: str) -> WahaSessionInfo:
         r = await self._client.get(f"/api/sessions/{name}")
         self._check(r)
-        return WahaSessionInfo.model_validate(r.json())
+        return WahaSessionInfo.model_validate(self._json(r))
 
     async def start_session(self, name: str) -> WahaSessionInfo:
         r = await self._client.post(f"/api/sessions/{name}/start")
         self._check(r)
-        return WahaSessionInfo.model_validate(r.json())
+        return WahaSessionInfo.model_validate(self._json(r))
 
     async def get_qr_base64(self, name: str) -> str:
         """Return QR as a data URI string (data:image/png;base64,...)."""
@@ -146,7 +156,7 @@ class WahaClient:
             params={"limit": limit, "offset": offset, "sortBy": "conversationTimestamp", "sortOrder": "desc", "merge": True},
         )
         self._check(r)
-        return [WahaChatOverview.model_validate(c) for c in r.json()]
+        return [WahaChatOverview.model_validate(c) for c in self._json(r)]
 
     async def get_chat_messages(
         self,
@@ -165,7 +175,7 @@ class WahaClient:
             timeout=_MESSAGES_TIMEOUT,
         )
         self._check(r)
-        return [WahaMessage.model_validate(m) for m in r.json()]
+        return [WahaMessage.model_validate(m) for m in self._json(r)]
 
     async def stop_session(self, name: str, logout: bool = False) -> None:
         """

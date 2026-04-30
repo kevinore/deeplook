@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,6 +111,8 @@ async def create_connection(
         session_info = await waha.get_or_create_session(name, str(client.id))
     except WahaError as e:
         raise HTTPException(status_code=502, detail=f"Could not create WAHA session: {e.message}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
     # Derive sync_frequency from plan
     _FREQ = {"enterprise": "weekly", "plus": "biweekly"}
@@ -256,6 +259,8 @@ async def get_connection_status(
         return {"connection_id": str(connection_id), "status": "FAILED", "phone_number": None, "push_name": None}
     except WahaError as e:
         raise HTTPException(status_code=502, detail=f"WAHA error: {e.message}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
 
 @router.get("/connections/{connection_id}/qr")
@@ -301,8 +306,12 @@ async def get_connection_qr(
                 await db.commit()
             except WahaError as e:
                 raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e.message}")
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
         except WahaError as e:
             raise HTTPException(status_code=502, detail=f"Could not start WAHA session: {e.message}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
     if current_status == WahaSessionStatus.WORKING.value:
         raise HTTPException(
@@ -326,9 +335,11 @@ async def get_connection_qr(
             live = await waha.get_session(conn.waha_session_name)
             await conn_repo.update(conn.id, status=live.status.value)
             await db.commit()
-        except WahaError:
+        except (WahaError, httpx.RequestError):
             pass
         raise HTTPException(status_code=502, detail=f"Could not fetch QR: {e.message}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
     expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=20)
     return {"qr_base64": qr_base64, "expires_at": expires_at.isoformat()}
@@ -441,8 +452,8 @@ async def delete_connection(
             current_status = await waha.wait_for_working(session_name, timeout_seconds=30)
     except WahaSessionNotFoundError:
         pass  # WAHA has no record — skip straight to DB cleanup
-    except WahaError as e:
-        logger.warning("WAHA error while starting session for unlink (client=%s): %s", conn.client_id, e.message)
+    except (WahaError, httpx.RequestError) as e:
+        logger.warning("WAHA error while starting session for unlink (client=%s): %s", conn.client_id, e)
 
     # Send the logout signal only when we have a live WhatsApp connection.
     # SCAN_QR_CODE means the QR was never scanned — no linked device to revoke.
@@ -450,13 +461,13 @@ async def delete_connection(
         try:
             await waha.logout_session(session_name)
             logger.info("WAHA logout sent for session=%s (client=%s)", session_name, conn.client_id)
-        except WahaError as e:
-            logger.warning("WAHA logout error during unlink (client=%s): %s", conn.client_id, e.message)
+        except (WahaError, httpx.RequestError) as e:
+            logger.warning("WAHA logout error during unlink (client=%s): %s", conn.client_id, e)
 
     try:
         await waha.delete_session(session_name)
-    except WahaError as e:
-        logger.warning("WAHA delete session error during unlink (client=%s): %s", conn.client_id, e.message)
+    except (WahaError, httpx.RequestError) as e:
+        logger.warning("WAHA delete session error during unlink (client=%s): %s", conn.client_id, e)
 
     await WhatsAppConnectionRepository(db).delete(conn.id)
     await db.commit()
