@@ -21,7 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenjp2-7 \
     fontconfig \
     fonts-dejavu-core \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
 
 # ── Environment ────────────────────────────────────────────────────────────
 # Agg = headless matplotlib backend (no GUI/display server needed).
