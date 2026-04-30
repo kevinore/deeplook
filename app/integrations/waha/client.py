@@ -70,6 +70,9 @@ class WahaClient:
         }
         r = await self._client.post("/api/sessions", json=body)
         self._check(r)
+        # WAHA Plus may return 202 with empty body when start=True triggers async startup
+        if not r.content.strip():
+            return await self.get_session(name)
         return WahaSessionInfo.model_validate(self._json(r))
 
     async def get_session(self, name: str) -> WahaSessionInfo:
