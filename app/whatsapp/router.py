@@ -103,7 +103,32 @@ async def create_connection(
 
     existing = await conn_repo.get_by_client(str(client.id))
     if existing:
-        raise HTTPException(status_code=409, detail="A WhatsApp connection already exists for this client.")
+        # Only block if the connection is genuinely active or terminally blocked.
+        # FAILED (QR not scanned in time), STOPPED, SCAN_QR_CODE and STARTING are
+        # all recoverable — restart the WAHA session so the user gets a fresh QR
+        # instead of being stuck on a 409 with no escape hatch.
+        BLOCKED_STATES = {
+            WahaSessionStatus.WORKING.value,
+            WahaSessionStatus.CHECKING_ACCOUNT.value,
+            WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value,
+        }
+        if existing.status in BLOCKED_STATES:
+            raise HTTPException(status_code=409, detail="A WhatsApp connection already exists for this client.")
+
+        try:
+            try:
+                session_info = await waha.restart_session(existing.waha_session_name)
+            except WahaSessionNotFoundError:
+                session_info = await waha.create_session(existing.waha_session_name, str(client.id))
+        except WahaError as e:
+            raise HTTPException(status_code=502, detail=f"Could not restart WAHA session: {e.message}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
+
+        await conn_repo.update(existing.id, status=session_info.status.value)
+        await db.commit()
+        await db.refresh(existing)
+        return ConnectionResponse.model_validate(existing)
 
     name = _session_name(str(client.id))
 
@@ -281,6 +306,29 @@ async def get_connection_qr(
             status_code=409,
             detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
         )
+
+    # If FAILED (e.g. user didn't scan in time and WAHA killed the session), restart
+    # transparently so the polling frontend gets a fresh QR without manual intervention.
+    if current_status == WahaSessionStatus.FAILED.value:
+        try:
+            await waha.restart_session(conn.waha_session_name)
+            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
+            await conn_repo.update(conn.id, status=current_status)
+            await db.commit()
+        except WahaSessionNotFoundError:
+            try:
+                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
+                current_status = session_info.status.value
+                await conn_repo.update(conn.id, status=current_status)
+                await db.commit()
+            except WahaError as e:
+                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e.message}")
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
+        except WahaError as e:
+            raise HTTPException(status_code=502, detail=f"Could not restart WAHA session: {e.message}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
     # If stopped or starting, wake the session up first
     if current_status in (WahaSessionStatus.STOPPED.value, WahaSessionStatus.STARTING.value):

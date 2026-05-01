@@ -85,6 +85,19 @@ class WahaClient:
         self._check(r)
         return WahaSessionInfo.model_validate(self._json(r))
 
+    async def restart_session(self, name: str) -> WahaSessionInfo:
+        """
+        Restart a session — clears FAILED state and triggers fresh QR generation.
+        Equivalent to stop+start; credentials on disk are preserved so a previously
+        paired account resumes without re-scanning. The primary use is recovering
+        sessions that hit "QR refs attempts ended" (user didn't scan in time).
+        """
+        r = await self._client.post(f"/api/sessions/{name}/restart")
+        self._check(r)
+        if not r.content.strip():
+            return await self.get_session(name)
+        return WahaSessionInfo.model_validate(self._json(r))
+
     async def get_qr_base64(self, name: str) -> str:
         """Return QR as a data URI string (data:image/png;base64,...)."""
         r = await self._client.get(f"/api/{name}/auth/qr", params={"format": "image"})
