@@ -26,3 +26,24 @@ services:
     restart: unless-stopped
     depends_on:
       - waha
+
+  # Self-hosted Metabase for platform analytics — points at Supabase via the
+  # direct connection URL (the transaction-mode pooler breaks Metabase's
+  # long-lived JDBC connections). Dashboards/questions are stored in the
+  # embedded H2 db kept in the metabase-data volume so they survive restarts.
+  metabase:
+    image: metabase/metabase:latest
+    container_name: deeplook-metabase
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - MB_DB_TYPE=h2
+      - MB_DB_FILE=/metabase-data/metabase.db
+      - MB_SITE_LOCALE=es
+      - JAVA_TIMEZONE=America/Bogota
+    volumes:
+      - metabase-data:/metabase-data
+
+volumes:
+  metabase-data:

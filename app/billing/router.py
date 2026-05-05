@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser, get_current_user
@@ -12,6 +12,7 @@ from app.dependencies import get_db
 from app.repositories.analysis_repo import AnalysisJobRepository
 from app.repositories.client_repo import ClientRepository
 from app.repositories.payment_repo import PaymentSessionRepository
+from app.repositories.trial_code_repo import TrialCodeRepository
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
@@ -202,4 +203,80 @@ async def get_quota(
             "manual_upload": quota.manual_upload,
             "trends_dashboard": quota.trends_dashboard,
         },
+    }
+
+
+class RedeemTrialRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=64)
+
+
+@router.post("/redeem-trial")
+async def redeem_trial(
+    body: RedeemTrialRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """
+    Redeem a single-use trial code. Activates the code's plan (default: basic)
+    for `duration_days` from now. A given client may redeem at most one code
+    in their lifetime; a given code may be claimed by at most one client.
+    """
+    code = body.code.strip().upper()
+
+    client_repo = ClientRepository(db)
+    clients = await client_repo.list_by_owner(user.user_id)
+    if not clients:
+        raise HTTPException(status_code=404, detail="Client profile not found.")
+    client = clients[0]
+
+    if client.trial_redeemed_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TRIAL_ALREADY_REDEEMED",
+                "message": "Ya canjeaste un código de prueba antes. Solo se permite un canje por cuenta.",
+            },
+        )
+
+    if client.plan != "free":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTIVE_PLAN",
+                "message": "Tu cuenta ya tiene un plan activo. Los códigos de prueba son solo para cuentas free.",
+            },
+        )
+
+    trial_repo = TrialCodeRepository(db)
+    claimed = await trial_repo.claim(code, str(client.id))
+    if claimed is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "INVALID_CODE",
+                "message": "Código inválido, expirado o ya canjeado.",
+            },
+        )
+
+    now = datetime.now(tz=timezone.utc)
+    trial_expiry = now + timedelta(days=claimed.duration_days)
+
+    await client_repo.update(
+        str(client.id),
+        plan=claimed.plan,
+        plan_started_at=now,
+        plan_expires_at=trial_expiry,
+        subscription_status="trial",
+        trial_redeemed_at=now,
+        last_renewal_email_stage=None,
+        last_renewal_email_sent_at=None,
+    )
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "plan": claimed.plan,
+        "plan_started_at": now.isoformat(),
+        "plan_expires_at": trial_expiry.isoformat(),
+        "duration_days": claimed.duration_days,
     }

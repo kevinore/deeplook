@@ -49,6 +49,8 @@ class Client(Base):
     # Habeas Data (Ley 1581/2012): timestamp at which the user explicitly accepted
     # the Privacy Policy and Terms of Service. Captured at onboarding.
     policies_accepted_at = Column(DateTime(timezone=True), nullable=True)
+    # Set when the client redeems a trial code; non-null = trial already used.
+    trial_redeemed_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -297,3 +299,23 @@ class DailyMetrics(Base):
     __table_args__ = (
         UniqueConstraint("client_id", "date", name="uq_daily_metrics_client_date"),
     )
+
+
+class TrialCode(Base):
+    __tablename__ = "trial_codes"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    code = Column(String(64), unique=True, nullable=False, index=True)
+    plan = Column(String(50), default="basic", nullable=False)
+    duration_days = Column(Integer, default=30, nullable=False)
+    redeemed_by_client_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("clients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    redeemed_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    note = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
