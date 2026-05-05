@@ -3,10 +3,19 @@ import openai
 from app.analytics.ai.provider import AIProvider, AIResponse
 from app.exceptions import AIProviderError
 
-# Cost per million tokens (USD)
+# Cost per million tokens (USD). Verified May 2026.
 _PRICING: dict[str, dict[str, float]] = {
+    # GPT-4 (legacy)
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "gpt-4o": {"input": 5.00, "output": 15.00},
+    # GPT-5 family
+    "gpt-5-nano": {"input": 0.05, "output": 0.40},
+    "gpt-5-mini": {"input": 0.40, "output": 1.60},
+    "gpt-5": {"input": 2.50, "output": 15.00},
+    # GPT-5.4 family (current, March 2026)
+    "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
+    "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
+    "gpt-5.4": {"input": 2.50, "output": 15.00},
 }
 
 

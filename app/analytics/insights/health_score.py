@@ -83,13 +83,19 @@ def calculate_health_score(
     else:
         components.append((50.0, 0.0))
 
-    # 3. Customer Sentiment (20%) — (positive%×100) + (neutral%×50) + (negative%×0)
+    # 3. Customer Sentiment (20%) — (positive%×100) + (neutral%×65) + (negative%×0)
+    # NEUTRAL weight raised from 50 → 65 (2026-05-05). The prompt now classifies
+    # most transactional WhatsApp interactions as NEUTRAL (correct: "no se quejó
+    # ≠ está satisfecho"). Industry data shows transactional B2C WhatsApp is the
+    # mode, not an aberration — a 100%-neutral conversation pool reflects a
+    # healthy "OK" operation, not a failure. 65 = mid-point between "indifferent"
+    # (50) and "satisfied without enthusiasm" (80).
     sentiment_results = [r for r in results if r.sentiment is not None]
     if sentiment_results:
         n = len(sentiment_results)
         positive = sum(1 for r in sentiment_results if r.sentiment == Sentiment.POSITIVE)
         neutral = sum(1 for r in sentiment_results if r.sentiment == Sentiment.NEUTRAL)
-        sentiment_score = (positive / n * 100) + (neutral / n * 50)
+        sentiment_score = (positive / n * 100) + (neutral / n * 65)
         components.append((sentiment_score, 0.20))
     else:
         components.append((50.0, 0.0))
@@ -159,13 +165,13 @@ def get_health_score_breakdown(
     unanswered_convs = sum(r.unanswered_count for r in results)
     cov_score = _unanswered_rate_score((unanswered_convs / total_convs) * 100) if total_convs > 0 else 50.0
 
-    # 3. Sentiment (20%)
+    # 3. Sentiment (20%) — neutral weight 65 (see calculate_health_score for rationale)
     sentiment_results = [r for r in results if r.sentiment is not None]
     if sentiment_results:
         n = len(sentiment_results)
         positive = sum(1 for r in sentiment_results if r.sentiment == Sentiment.POSITIVE)
         neutral = sum(1 for r in sentiment_results if r.sentiment == Sentiment.NEUTRAL)
-        sent_score = min(100.0, (positive / n * 100) + (neutral / n * 50))
+        sent_score = min(100.0, (positive / n * 100) + (neutral / n * 65))
     else:
         sent_score = 50.0
 

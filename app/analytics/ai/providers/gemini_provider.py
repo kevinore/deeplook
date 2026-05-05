@@ -4,17 +4,29 @@ from google.genai import types
 from app.analytics.ai.provider import AIProvider, AIResponse
 from app.exceptions import AIProviderError
 
-# Cost per million tokens (USD)
+# Cost per million tokens (USD). Verified May 2026.
 _PRICING: dict[str, dict[str, float]] = {
-    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    # Gemini 1.x (legacy)
     "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
     "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
+    # Gemini 2.x (legacy)
+    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
     "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
+    # Gemini 3.x (current)
+    "gemini-3-flash-lite": {"input": 0.25, "output": 1.50},
+    "gemini-3.1-flash-lite-preview": {"input": 0.25, "output": 1.50},
+    "gemini-3-flash": {"input": 0.50, "output": 2.00},
+    "gemini-3-pro": {"input": 1.25, "output": 10.00},
 }
+
+# Models that support native chain-of-thought "thinking" config.
+# Enabling thinking improves calibration on subjective scoring tasks
+# (sentiment, quality breakdown) at the cost of a few extra output tokens.
+_THINKING_CAPABLE_PREFIXES = ("gemini-3",)
 
 
 class GeminiProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-3.1-flash-lite-preview"):
         self._model = model
         self._client = genai.Client(api_key=api_key)
 
@@ -26,6 +38,9 @@ class GeminiProvider(AIProvider):
     def model_name(self) -> str:
         return self._model
 
+    def _supports_thinking(self) -> bool:
+        return any(self._model.startswith(p) for p in _THINKING_CAPABLE_PREFIXES)
+
     async def analyze(
         self,
         system_prompt: str,
@@ -36,16 +51,30 @@ class GeminiProvider(AIProvider):
     ) -> AIResponse:
         effective_system = system_prompt
         if response_format == "json":
-            effective_system = system_prompt + "\n\nReturn ONLY valid JSON. No explanation, no markdown."
+            effective_system = (
+                system_prompt
+                + "\n\nIMPORTANTE: Devuelve EXCLUSIVAMENTE un objeto JSON válido en español. "
+                "Sin texto adicional, sin markdown, sin ```json."
+            )
+
+        config_kwargs: dict = {
+            "system_instruction": effective_system,
+            "temperature": temperature,
+            "top_k": 1,
+            "max_output_tokens": max_tokens,
+            "response_mime_type": "application/json" if response_format == "json" else "text/plain",
+        }
+
+        # Enable native reasoning on Gemini 3.x to improve scoring consistency.
+        # ThinkingConfig may not be present in older SDK versions — degrade gracefully.
+        if self._supports_thinking():
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=1024)
+            except (AttributeError, TypeError):
+                pass
 
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=effective_system,
-                temperature=temperature,
-                top_k=1,
-                max_output_tokens=max_tokens,
-                response_mime_type="application/json" if response_format == "json" else "text/plain",
-            )
+            config = types.GenerateContentConfig(**config_kwargs)
 
             response = await self._client.aio.models.generate_content(
                 model=self._model,
@@ -74,7 +103,13 @@ class GeminiProvider(AIProvider):
         if pricing is None:
             # Prefix-based fallback for preview / unreleased models
             model_lower = self._model.lower()
-            if "flash-lite" in model_lower:
+            if "3" in model_lower and "flash-lite" in model_lower:
+                pricing = {"input": 0.25, "output": 1.50}
+            elif "3" in model_lower and "flash" in model_lower:
+                pricing = {"input": 0.50, "output": 2.00}
+            elif "3" in model_lower and "pro" in model_lower:
+                pricing = {"input": 1.25, "output": 10.00}
+            elif "flash-lite" in model_lower:
                 pricing = {"input": 0.075, "output": 0.30}
             elif "flash" in model_lower:
                 pricing = {"input": 0.10, "output": 0.40}

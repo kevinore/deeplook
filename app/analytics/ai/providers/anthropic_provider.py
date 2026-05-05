@@ -3,10 +3,13 @@ import anthropic
 from app.analytics.ai.provider import AIProvider, AIResponse
 from app.exceptions import AIProviderError
 
-# Cost per million tokens (USD)
+# Cost per million tokens (USD). Verified May 2026.
 _PRICING: dict[str, dict[str, float]] = {
-    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00},
+    # Claude 4.x (current generation)
+    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+    "claude-opus-4-7": {"input": 15.00, "output": 75.00},
 }
 
 
@@ -34,7 +37,11 @@ class AnthropicProvider(AIProvider):
         # For JSON mode: inject instruction into system prompt (Anthropic has no native JSON mode)
         effective_system = system_prompt
         if response_format == "json":
-            effective_system = system_prompt + "\n\nReturn ONLY valid JSON. No explanation, no markdown."
+            effective_system = (
+                system_prompt
+                + "\n\nIMPORTANTE: Devuelve EXCLUSIVAMENTE un objeto JSON válido en español. "
+                "Sin texto adicional, sin markdown, sin ```json."
+            )
 
         try:
             response = await self._client.messages.create(

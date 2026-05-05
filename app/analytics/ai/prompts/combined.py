@@ -75,46 +75,32 @@ CONTEXTO: En WhatsApp Business la mayoría de clientes son neutros — preguntan
   - is_ghosted=true Y la última respuesta del negocio fue claramente insuficiente
 
 ═══════════════════════════════════════════════
-TEMA (primary_topic, secondary_topics) — VOCABULARIO ABIERTO PERO NORMALIZADO
+TEMA (primary_topic, secondary_topics) — LISTA CERRADA
 ═══════════════════════════════════════════════
 
-Identifica el tema PRINCIPAL real de la consulta del cliente. NO uses la categoría genérica "consulta general" como cajón de sastre: si la conversación es sobre algo concreto (precios, agendar, ubicación, un servicio específico, etc.) nómbralo. Reservar "consulta general" SOLO cuando es realmente imposible categorizar (ej. "hola", "información").
+Identifica el tema PRINCIPAL real de la consulta del cliente. DEBES escoger UNO de la lista cerrada de abajo. NO inventes temas nuevos. NO uses "consulta general" como cajón de sastre — solo cuando es realmente imposible categorizar (ej. "hola", saludo sin pregunta).
 
-REGLAS DE NORMALIZACIÓN (críticas para que distintas conversaciones se agrupen igual):
-  • En español, minúsculas, SIN signos de pregunta ni puntuación final.
-  • 1–3 palabras como máximo. Genérico, no específico al cliente concreto.
+LISTA CERRADA DE TEMAS (usa SOLO uno de estos como `primary_topic`):
+{TOPIC_LIST}
+
+REGLAS DE FORMATO (críticas para que distintas conversaciones se agrupen igual):
+  • Español, minúsculas, SIN signos de pregunta ni puntuación final.
+  • Copia el nombre EXACTO de la lista cerrada arriba.
   • SIN nombres propios, marcas, fechas, ubicaciones específicas, ni precios.
-  • Sustantivo o frase sustantiva — no oración completa.
-
-Buenos ejemplos (forma correcta):
-  ✓ "precios"
-  ✓ "agendar cita"
-  ✓ "disponibilidad"
-  ✓ "información de servicios"
-  ✓ "ubicación"
-  ✓ "horarios"
-  ✓ "pagos"
-  ✓ "pedido"
-  ✓ "garantía"
-  ✓ "reclamo"
-  ✓ "seguimiento de pedido"
-  ✓ "información del producto"  (cuando preguntan por características técnicas)
-  ✓ "envíos"
-  ✓ "promociones"
 
 Malos ejemplos (NO uses estos):
   ✗ "Cliente pregunta cuánto cuesta el corte de cabello en la sede del norte"  (oración completa)
-  ✗ "consulta general"  (genérico — busca el tema real)
-  ✗ "Precios"  (mayúscula)
+  ✗ "Precios"  (mayúscula — la lista usa minúsculas)
   ✗ "¿precios?"  (con signo)
   ✗ "consulta sobre el precio del producto X"  (incluye específico)
+  ✗ "envíos a domicilio"  (no está en la lista cerrada — usa el más cercano)
 
 Aplica esta heurística:
   1. Lee la primera pregunta clara del cliente.
-  2. Resume en 1–3 palabras genéricas qué quiere saber.
-  3. Si no hay una pregunta clara, usa "consulta general" como último recurso.
+  2. Identifica cuál tema de la lista cerrada describe mejor la consulta.
+  3. Si ninguno encaja Y el mensaje no tiene intención clara, usa "consulta general".
 
-`secondary_topics`: lista de 0-3 temas adicionales (mismas reglas).
+`secondary_topics`: lista de 0-3 temas adicionales (mismas reglas, mismos valores de la lista cerrada).
 
 ═══════════════════════════════════════════════
 CALIDAD (quality_score, quality_breakdown) — 3 DIMENSIONES, EVALUACIÓN RIGUROSA
@@ -238,6 +224,60 @@ RESUMEN, PUNTOS CLAVE Y PREGUNTAS
   - Lista vacía si no hizo preguntas explícitas.
 
 ═══════════════════════════════════════════════
+EJEMPLOS DE CALIBRACIÓN (anclas de referencia)
+═══════════════════════════════════════════════
+
+Estos 3 ejemplos te muestran cómo aplicar las escalas en casos reales. NO son reglas — son anclas. Tu evaluación debe estar calibrada a este nivel de exigencia. Compara cada conversación que analices contra estos puntos de referencia.
+
+──── ANCLA 1 — Conversación EXCELENTE (quality 8.5) ────
+
+Transcripción:
+[10:00] CUSTOMER: Buenos días, ¿cuánto cuesta una limpieza dental y tienen disponibilidad esta semana?
+[10:02] BUSINESS: ¡Buenos días! La limpieza dental tiene un valor de $80.000 y dura aproximadamente 45 minutos. Esta semana tenemos disponibilidad miércoles 3 PM, jueves 10 AM y viernes 11 AM. ¿Cuál te queda mejor? Te recomiendo venir 10 minutos antes para llenar la ficha si es tu primera vez.
+[10:05] CUSTOMER: Perfecto, jueves a las 10 AM. ¿Necesito llevar algo?
+[10:06] BUSINESS: Solo tu cédula y, si tienes EPS, la tarjeta. Te confirmo cita: jueves 8 de octubre, 10 AM, limpieza dental con la Dra. Martínez. ¡Te esperamos!
+[10:07] CUSTOMER: Listo, allí estaré. ¡Gracias!
+
+JSON esperado:
+{"sentiment":"positive","sentiment_score":0.7,"sentiment_reason":"Cliente confirmó cita con fecha y hora específica y agradeció genuinamente.","primary_topic":"agendar cita","secondary_topics":["precios","disponibilidad"],"quality_score":8.5,"quality_breakdown":{"helpfulness":9,"tone":8,"completeness":9},"conversion_status":"converted","conversion_reason":"Cita confirmada para jueves 8 de octubre a las 10 AM con todos los datos.","summary":"Cliente preguntó por limpieza dental y disponibilidad. El negocio respondió completamente en 2 minutos con precio, duración y 3 opciones de horario. Cliente confirmó cita.","key_points":["Respuesta en 2 minutos con info completa","Negocio anticipó dudas (qué llevar, llegar antes)","Cita confirmada con todos los datos"],"customer_questions":["cuánto cuesta limpieza dental","tienen disponibilidad"]}
+
+Por qué 8.5 y no 9+: helpfulness 9 (anticipó dudas), tone 8 (cordial pero podría haber personalizado más con el nombre del cliente), completeness 9 (cubrió todo). Promedio = 8.67 ≈ 8.5. Para 9+ tendría que haber sido excepcional (saludo personalizado, seguimiento proactivo).
+
+──── ANCLA 2 — Conversación REGULAR (quality 6.0) ────
+
+Transcripción:
+[14:00] CUSTOMER: Hola, vi su anuncio. ¿Cuánto vale el corte de cabello?
+[14:18] BUSINESS: hola corte 25mil
+[14:20] CUSTOMER: ¿Y tinte?
+[14:35] BUSINESS: depende
+[14:36] CUSTOMER: ¿Depende de qué?
+[14:50] BUSINESS: del largo del cabello y la marca del tinte
+[14:52] CUSTOMER: Tengo el cabello a la altura del hombro, ¿más o menos cuánto?
+[15:30] BUSINESS: entre 80 y 120 mil
+
+JSON esperado:
+{"sentiment":"neutral","sentiment_score":-0.1,"sentiment_reason":"Cliente recibió respuesta pero tuvo que insistir 3 veces. No expresa satisfacción ni queja explícita.","primary_topic":"precios","secondary_topics":["información de servicios"],"quality_score":6.0,"quality_breakdown":{"helpfulness":6,"tone":5,"completeness":7},"conversion_status":"pending","conversion_reason":"Cliente recibió rango de precios pero no confirmó interés ni agendó.","summary":"Cliente preguntó por precios de corte y tinte. El negocio respondió con mensajes cortos sin contexto, obligando al cliente a hacer 3 preguntas de seguimiento. Información finalmente entregada pero de forma mínima.","key_points":["Respuestas en minúsculas, sin saludo apropiado","Cliente tuvo que repetir preguntas","Tiempo entre respuestas variable (18-40 min)"],"customer_questions":["cuánto vale corte de cabello","cuánto vale el tinte"]}
+
+Por qué 6.0: helpfulness 6 (respondió pero no anticipó), tone 5 (sin saludo, fragmentado, monosílabos), completeness 7 (al final dio toda la info). Promedio = 6.0. El tono bajo arrastra la nota.
+
+──── ANCLA 3 — Conversación POBRE (quality 3.5) ────
+
+Transcripción:
+[09:15] CUSTOMER: Buenos días, quiero información sobre el servicio de domicilio. ¿Tienen cobertura en el barrio Robledo?
+[11:42] BUSINESS: si
+[11:43] CUSTOMER: ¿Cuál es el costo del domicilio y en cuánto tiempo llega?
+[14:20] BUSINESS: depende del pedido escribame al 3001234567
+
+JSON esperado:
+{"sentiment":"negative","sentiment_score":-0.5,"sentiment_reason":"Cliente esperó más de 2 horas para respuesta de una palabra y luego fue redirigido a otro número sin información útil.","primary_topic":"envíos","secondary_topics":["ubicación","precios"],"quality_score":3.5,"quality_breakdown":{"helpfulness":3,"tone":4,"completeness":4},"conversion_status":"lost","conversion_reason":"Negocio redirigió a otro contacto sin dar información, alta probabilidad de pérdida del cliente.","summary":"Cliente preguntó por cobertura y costo de domicilio. El negocio tardó horas en responder con monosílabos y luego derivó a otro número sin dar la información solicitada.","key_points":["Primera respuesta tardó 2h 27min","Respuesta de una sola palabra ('si')","Redirige a otro número en lugar de responder","No saludo, no despedida"],"customer_questions":["tienen cobertura en mi zona","cuánto cuesta el domicilio","en cuánto tiempo llega"]}
+
+Por qué 3.5: helpfulness 3 (redirigió en lugar de responder), tone 4 (sin saludo, monosílabos), completeness 4 (no respondió las preguntas concretas). Promedio = 3.67 ≈ 3.5.
+
+══════════════════════════════════════════════
+Usa estas anclas para calibrar. Si tu conversación se parece más al Ancla 2 que al Ancla 1, no la califiques como Ancla 1 solo por amabilidad.
+══════════════════════════════════════════════
+
+═══════════════════════════════════════════════
 PASO DE AUTO-VERIFICACIÓN (OBLIGATORIO ANTES DE RESPONDER)
 ═══════════════════════════════════════════════
 
@@ -304,9 +344,6 @@ _BASE_TOPICS = [
     ('garantía', 'cliente pregunta por políticas de devolución, garantía, reembolso'),
     ('consulta general', 'cualquier otra cosa'),
 ]
-
-_FOOD_TOPICS = _BASE_TOPICS  # base list works fine for restaurants
-_RETAIL_TOPICS = _BASE_TOPICS
 
 _TOPIC_OVERRIDES_BY_TYPE: dict[str, list[tuple[str, str]]] = {
     # Reserved for future tuning. The default list already covers retail/services/food.

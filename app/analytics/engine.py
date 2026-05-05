@@ -71,7 +71,9 @@ class AnalyticsEngine:
             if ai_result.sentiment is None and response.content.strip():
                 logger.warning("AI parse retry for conversation %s", conversation_id)
                 retry_resp = await self._ai.analyze(
-                    system_prompt=system_prompt + "\n\nIMPORTANT: Return ONLY a JSON object, nothing else.",
+                    system_prompt=system_prompt
+                    + "\n\nIMPORTANTE: Devuelve EXCLUSIVAMENTE un objeto JSON válido en español, "
+                    "sin texto adicional, sin markdown, sin ```json. Todos los campos de texto en español colombiano.",
                     user_prompt=user_prompt,
                     temperature=0.0,
                 )
