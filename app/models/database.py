@@ -308,13 +308,8 @@ class TrialCode(Base):
     code = Column(String(64), unique=True, nullable=False, index=True)
     plan = Column(String(50), default="basic", nullable=False)
     duration_days = Column(Integer, default=30, nullable=False)
-    redeemed_by_client_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("clients.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    redeemed_at = Column(DateTime(timezone=True), nullable=True)
+    max_claims = Column(Integer, default=1, nullable=False)
+    claims_count = Column(Integer, default=0, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     note = Column(String(255), nullable=True)

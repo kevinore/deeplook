@@ -5,12 +5,13 @@
 {% set urgency_color = {'info':'#4f46e5','warning':'#f59e0b','critical':'#ef4444'}[urgency] %}
 {% set urgency_bg = {'info':'#eef2ff','warning':'#fffbeb','critical':'#fef2f2'}[urgency] %}
 {% set urgency_label = {'info':'Renovación próxima','warning':'Pendiente','critical':'Urgente'}[urgency] %}
+{% set urgency_dm_class = {'info':'dm-banner-info','warning':'dm-banner-warning','critical':'dm-banner-critical'}[urgency] %}
 
 {% block content %}
 <!-- ── Status banner ────────────────────────────────────────────────── -->
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
   <tr>
-    <td style="background-color:{{ urgency_bg }};border-left:4px solid {{ urgency_color }};border-radius:6px;padding:12px 18px;">
+    <td class="{{ urgency_dm_class }}" style="background-color:{{ urgency_bg }};border-left:4px solid {{ urgency_color }};border-radius:6px;padding:12px 18px;">
       <p style="margin:0;font-size:13px;font-weight:600;color:{{ urgency_color }};letter-spacing:0.4px;text-transform:uppercase;">
         {{ urgency_label }}
       </p>
@@ -18,7 +19,7 @@
   </tr>
 </table>
 
-<h1 class="h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
+<h1 class="h1 dm-h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
   {% if days_remaining == 1 %}
     Tu plan vence mañana
   {% elif days_remaining == 0 %}
@@ -28,13 +29,13 @@
   {% endif %}
 </h1>
 
-<p style="margin:0 0 24px;font-size:16px;line-height:24px;color:#374151;">
-  Hola {{ name }}, tu plan <strong style="color:#4f46e5;">{{ plan_label }}</strong> de DeepLook
-  para <strong>{{ business_name }}</strong> está por vencer.
+<p class="dm-body" style="margin:0 0 24px;font-size:16px;line-height:24px;color:#374151;">
+  Hola {{ name }}, tu plan <strong class="dm-strong" style="color:#4f46e5;">{{ plan_label }}</strong> de DeepLook
+  para <strong class="dm-strong">{{ business_name }}</strong> está por vencer.
   Renueva ahora para mantener los reportes automáticos y la conexión activa con WhatsApp.
 </p>
 
-<!-- ── Plan card ────────────────────────────────────────────────────── -->
+<!-- ── Plan card (dark gradient — works in both modes) ──────────────── -->
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
   <tr>
     <td style="background:linear-gradient(135deg,#0e0749 0%,#4f46e5 100%);border-radius:12px;padding:28px 24px;color:#ffffff;">
@@ -68,22 +69,22 @@
 </table>
 
 <!-- ── What you lose if you don't renew ─────────────────────────────── -->
-<p style="margin:0 0 12px;font-size:14px;font-weight:600;color:#374151;">
+<p class="dm-body" style="margin:0 0 12px;font-size:14px;font-weight:600;color:#374151;">
   Si no renuevas, vas a perder:
 </p>
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#ef4444;font-weight:700;">×</span>&nbsp;&nbsp;Reportes automáticos de tus conversaciones
     </td>
   </tr>
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#ef4444;font-weight:700;">×</span>&nbsp;&nbsp;Conexión activa con WhatsApp Business
     </td>
   </tr>
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#ef4444;font-weight:700;">×</span>&nbsp;&nbsp;Recomendaciones personalizadas para tu negocio
     </td>
   </tr>
@@ -108,7 +109,7 @@
   </tr>
 </table>
 
-<p style="margin:20px 0 0;font-size:13px;line-height:20px;color:#6b7280;">
+<p class="dm-muted" style="margin:20px 0 0;font-size:13px;line-height:20px;color:#6b7280;">
   ¿Quieres cambiar de plan o tienes alguna duda? Responde a este correo y te ayudamos.
 </p>
 {% endblock %}

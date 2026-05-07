@@ -19,14 +19,14 @@ class TrialCodeRepository(BaseRepository[TrialCode]):
 
     async def claim(self, code: str, client_id: str) -> TrialCode | None:
         """
-        Atomic single-use claim: marks the code as redeemed only if it is currently
-        active, unredeemed, and within its redemption window. Returns the updated
-        TrialCode on success, or None if the code was already redeemed, inactive,
-        expired, or non-existent.
+        Atomic claim: increments claims_count only if the code is active, has
+        remaining capacity (claims_count < max_claims), and is within its
+        redemption window. Returns the updated TrialCode on success, or None if
+        the code is exhausted, inactive, expired, or non-existent.
 
         Postgres serializes concurrent UPDATEs on the same row, so two callers
-        racing on the same code can never both succeed. `expires_at IS NULL`
-        means the code has no redemption deadline.
+        racing on the last available slot can never both succeed. `expires_at IS
+        NULL` means the code has no redemption deadline.
         """
         now = datetime.now(tz=timezone.utc)
         stmt = (
@@ -34,10 +34,10 @@ class TrialCodeRepository(BaseRepository[TrialCode]):
             .where(
                 TrialCode.code == code,
                 TrialCode.is_active == True,  # noqa: E712
-                TrialCode.redeemed_by_client_id.is_(None),
+                TrialCode.claims_count < TrialCode.max_claims,
                 or_(TrialCode.expires_at.is_(None), TrialCode.expires_at > now),
             )
-            .values(redeemed_by_client_id=client_id, redeemed_at=now)
+            .values(claims_count=TrialCode.claims_count + 1)
         )
         result = await self.session.execute(stmt)
         if result.rowcount == 0:

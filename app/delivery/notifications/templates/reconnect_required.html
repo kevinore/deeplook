@@ -3,10 +3,10 @@
 {% block preheader %}WhatsApp desvinculó tu dispositivo — reconecta en menos de 1 minuto para no perder tus reportes.{% endblock %}
 
 {% block content %}
-<!-- Status banner -->
+<!-- ── Status banner ─────────────────────────────────────────────────── -->
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
   <tr>
-    <td style="background-color:#fef2f2;border-left:4px solid #ef4444;border-radius:6px;padding:12px 18px;">
+    <td class="dm-banner-critical" style="background-color:#fef2f2;border-left:4px solid #ef4444;border-radius:6px;padding:12px 18px;">
       <p style="margin:0;font-size:13px;font-weight:600;color:#dc2626;letter-spacing:0.4px;text-transform:uppercase;">
         Acción requerida
       </p>
@@ -14,49 +14,53 @@
   </tr>
 </table>
 
-<h1 class="h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
+<h1 class="h1 dm-h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
   Tu WhatsApp se desconectó de DeepLook
 </h1>
 
-<p style="margin:0 0 20px;font-size:16px;line-height:24px;color:#374151;">
-  Hola {{ name }}, detectamos que la conexión de <strong>{{ business_name }}</strong> con DeepLook
+<p class="dm-body" style="margin:0 0 20px;font-size:16px;line-height:24px;color:#374151;">
+  Hola {{ name }}, detectamos que la conexión de <strong class="dm-strong">{{ business_name }}</strong> con DeepLook
   fue desvinculada por WhatsApp. Para seguir recibiendo tus reportes automáticos, necesitas
   escanear un código QR nuevo.
 </p>
 
-<!-- Why this happened -->
-<div style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;margin:0 0 24px;">
-  <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#0e0749;">¿Por qué pasó esto?</p>
-  <p style="margin:0;font-size:13px;line-height:20px;color:#6b7280;">
-    WhatsApp desvincula automáticamente cualquier dispositivo conectado si tu teléfono no
-    se conecta a WhatsApp por 14 días seguidos. Esto es una medida de seguridad de WhatsApp
-    y aplica a cualquier integración (no solo DeepLook).
-  </p>
-</div>
+<!-- ── Why this happened ────────────────────────────────────────────── -->
+<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+  <tr>
+    <td class="dm-box" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;">
+      <p class="dm-box-title" style="margin:0 0 8px;font-size:13px;font-weight:600;color:#0e0749;">¿Por qué pasó esto?</p>
+      <p class="dm-box-text" style="margin:0;font-size:13px;line-height:20px;color:#6b7280;">
+        WhatsApp desvincula automáticamente cualquier dispositivo conectado si tu teléfono no
+        se conecta a WhatsApp por 14 días seguidos. Esto es una medida de seguridad de WhatsApp
+        y aplica a cualquier integración (no solo DeepLook).
+      </p>
+    </td>
+  </tr>
+</table>
 
-<!-- Step list -->
-<p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#374151;">
+<!-- ── Steps ────────────────────────────────────────────────────────── -->
+<p class="dm-body" style="margin:0 0 14px;font-size:14px;font-weight:600;color:#374151;">
   Reconectar toma menos de 1 minuto:
 </p>
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 28px;">
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#4f46e5;font-weight:700;">1.</span>&nbsp;&nbsp;Entra al panel de DeepLook
     </td>
   </tr>
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#4f46e5;font-weight:700;">2.</span>&nbsp;&nbsp;Ve a la sección "Conectar WhatsApp"
     </td>
   </tr>
   <tr>
-    <td style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
+    <td class="dm-list-item" style="padding:6px 0;font-size:14px;line-height:22px;color:#374151;">
       <span style="color:#4f46e5;font-weight:700;">3.</span>&nbsp;&nbsp;Escanea el código QR con tu teléfono
     </td>
   </tr>
 </table>
 
-<!-- CTA button -->
+<!-- ── CTA button ───────────────────────────────────────────────────── -->
 <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:8px 0 16px;">
   <tr>
     <td align="center" style="border-radius:8px;background-color:#4f46e5;">
@@ -75,7 +79,7 @@
   </tr>
 </table>
 
-<p style="margin:24px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:20px;color:#9ca3af;">
+<p class="dm-very-muted dm-divider" style="margin:24px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;font-size:13px;line-height:20px;color:#9ca3af;">
   Mientras no reconectes, tus reportes automáticos están en pausa. No se descontará nada
   de tu cuota durante este período.
 </p>

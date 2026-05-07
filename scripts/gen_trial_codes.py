@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
         help="How many days the code itself can be redeemed for (default: same as --days). "
              "Pass 0 to make the code never expire.",
     )
+    p.add_argument("--max-claims", dest="max_claims", type=int, default=1,
+                   help="How many users can claim this code (default 1).")
     p.add_argument("--note", default=None, help="Internal note (e.g. campaign name).")
     p.add_argument("--code", default=None, help="Mint exactly this code instead of random ones (count is ignored).")
     p.add_argument("--length", type=int, default=10, help="Length of random codes (default 10).")
@@ -86,12 +88,12 @@ async def main() -> int:
                 params.append(str(valid_for))
             row = await conn.fetchrow(
                 f"""
-                INSERT INTO trial_codes (id, code, plan, duration_days, is_active, note, expires_at)
-                VALUES (gen_random_uuid(), $1, $2, $3, true, $4, {expires_clause})
+                INSERT INTO trial_codes (id, code, plan, duration_days, max_claims, claims_count, is_active, note, expires_at)
+                VALUES (gen_random_uuid(), $1, $2, $3, $6, 0, true, $4, {expires_clause})
                 ON CONFLICT (code) DO NOTHING
-                RETURNING code, plan, duration_days, note, expires_at
+                RETURNING code, plan, duration_days, max_claims, note, expires_at
                 """,
-                *params,
+                *params, args.max_claims,
             )
             if row:
                 rows.append(row)
@@ -106,7 +108,7 @@ async def main() -> int:
         for r in rows:
             note = f"  [{r['note']}]" if r["note"] else ""
             window = f"valid until {r['expires_at'].strftime('%Y-%m-%d')}" if r["expires_at"] else "no expiry"
-            print(f"  {r['code']}  →  plan={r['plan']}  duration={r['duration_days']}d  ({window}){note}")
+            print(f"  {r['code']}  →  plan={r['plan']}  duration={r['duration_days']}d  max_claims={r['max_claims']}  ({window}){note}")
     finally:
         await conn.close()
 

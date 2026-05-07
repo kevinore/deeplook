@@ -3,26 +3,26 @@
 {% block preheader %}Tu cuenta está lista — conecta tu WhatsApp en menos de 2 minutos y recibe tu primer análisis.{% endblock %}
 
 {% block content %}
-<h1 class="h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
+<h1 class="h1 dm-h1" style="margin:0 0 12px;font-size:28px;line-height:36px;font-weight:700;color:#0e0749;letter-spacing:-0.4px;">
   ¡Bienvenido, {{ name }}!
 </h1>
 
-<p style="margin:0 0 24px;font-size:16px;line-height:24px;color:#374151;">
-  Acabas de unirte a <strong style="color:#4f46e5;">DeepLook</strong>. A partir de ahora, vas a poder ver
-  exactamente qué pasa en las conversaciones de <strong>{{ business_name }}</strong> por WhatsApp —
+<p class="dm-body" style="margin:0 0 24px;font-size:16px;line-height:24px;color:#374151;">
+  Acabas de unirte a <strong class="dm-strong" style="color:#4f46e5;">DeepLook</strong>. A partir de ahora, vas a poder ver
+  exactamente qué pasa en las conversaciones de <strong class="dm-strong">{{ business_name }}</strong> por WhatsApp —
   con métricas reales, no suposiciones.
 </p>
 
 <!-- ── Step list ────────────────────────────────────────────────────── -->
 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:24px 0 32px;">
   <tr>
-    <td style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #4f46e5;">
+    <td class="dm-step" style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #4f46e5;">
       <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
         <tr>
           <td width="32" valign="top" style="font-size:18px;font-weight:700;color:#4f46e5;padding-right:12px;">1.</td>
           <td>
-            <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Conecta tu WhatsApp Business</p>
-            <p style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Escanea un código QR una sola vez. Tomamos el resto desde ahí.</p>
+            <p class="dm-step-title" style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Conecta tu WhatsApp Business</p>
+            <p class="dm-step-text" style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Escanea un código QR una sola vez. Tomamos el resto desde ahí.</p>
           </td>
         </tr>
       </table>
@@ -30,13 +30,13 @@
   </tr>
   <tr><td style="height:12px;line-height:12px;font-size:0;">&nbsp;</td></tr>
   <tr>
-    <td style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #a78bfa;">
+    <td class="dm-step" style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #a78bfa;">
       <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
         <tr>
           <td width="32" valign="top" style="font-size:18px;font-weight:700;color:#a78bfa;padding-right:12px;">2.</td>
           <td>
-            <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Recibe tu primer reporte</p>
-            <p style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Analizamos hasta los últimos 30 días automáticamente. Tarda unos minutos.</p>
+            <p class="dm-step-title" style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Recibe tu primer reporte</p>
+            <p class="dm-step-text" style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Analizamos hasta los últimos 30 días automáticamente. Tarda unos minutos.</p>
           </td>
         </tr>
       </table>
@@ -44,13 +44,13 @@
   </tr>
   <tr><td style="height:12px;line-height:12px;font-size:0;">&nbsp;</td></tr>
   <tr>
-    <td style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #22c55e;">
+    <td class="dm-step" style="padding:16px;background-color:#f9fafb;border-radius:8px;border-left:4px solid #22c55e;">
       <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
         <tr>
           <td width="32" valign="top" style="font-size:18px;font-weight:700;color:#22c55e;padding-right:12px;">3.</td>
           <td>
-            <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Mejora tus respuestas</p>
-            <p style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Recibe recomendaciones específicas basadas en tu propia operación, no en teoría.</p>
+            <p class="dm-step-title" style="margin:0 0 4px;font-size:15px;font-weight:600;color:#111827;">Mejora tus respuestas</p>
+            <p class="dm-step-text" style="margin:0;font-size:14px;line-height:20px;color:#6b7280;">Recibe recomendaciones específicas basadas en tu propia operación, no en teoría.</p>
           </td>
         </tr>
       </table>
@@ -77,8 +77,8 @@
   </tr>
 </table>
 
-<p style="margin:0;font-size:14px;line-height:22px;color:#6b7280;">
+<p class="dm-muted" style="margin:0;font-size:14px;line-height:22px;color:#6b7280;">
   ¿Prefieres explorar primero?
-  <a href="{{ dashboard_url }}" style="color:#4f46e5;text-decoration:none;font-weight:500;">Ir al panel principal</a>.
+  <a href="{{ dashboard_url }}" class="dm-link" style="color:#4f46e5;text-decoration:none;font-weight:500;">Ir al panel principal</a>.
 </p>
 {% endblock %}

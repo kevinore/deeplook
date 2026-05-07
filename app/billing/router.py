@@ -217,9 +217,9 @@ async def redeem_trial(
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     """
-    Redeem a single-use trial code. Activates the code's plan (default: basic)
-    for `duration_days` from now. A given client may redeem at most one code
-    in their lifetime; a given code may be claimed by at most one client.
+    Redeem a trial code. Activates the code's plan (default: basic) for
+    `duration_days` from now. A given client may redeem at most one code in
+    their lifetime; a code may be claimed up to its `max_claims` limit.
     """
     code = body.code.strip().upper()
 
@@ -250,13 +250,14 @@ async def redeem_trial(
     trial_repo = TrialCodeRepository(db)
     claimed = await trial_repo.claim(code, str(client.id))
     if claimed is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "INVALID_CODE",
-                "message": "Código inválido, expirado o ya canjeado.",
-            },
-        )
+        existing = await trial_repo.get_by_code(code)
+        if existing is None or not existing.is_active:
+            detail = {"code": "INVALID_CODE", "message": "Código inválido. Verifica que lo hayas escrito correctamente."}
+        elif existing.claims_count >= existing.max_claims:
+            detail = {"code": "CODE_EXHAUSTED", "message": "Este código ya alcanzó su límite de usos y no está disponible."}
+        else:
+            detail = {"code": "CODE_EXPIRED", "message": "Este código ha expirado y ya no puede canjearse."}
+        raise HTTPException(status_code=404, detail=detail)
 
     now = datetime.now(tz=timezone.utc)
     trial_expiry = now + timedelta(days=claimed.duration_days)

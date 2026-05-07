@@ -38,6 +38,21 @@ _env = Environment(
     lstrip_blocks=True,
 )
 
+# Logo images are bundled alongside this package so they work in every
+# environment without depending on the frontend URL being reachable.
+# They are attached as CID inline images so every email client renders them.
+_NOTIFICATIONS_DIR = Path(__file__).parent
+_LOGO_WHITE_BYTES: bytes = (_NOTIFICATIONS_DIR / "deeplook-vertical-white.png").read_bytes()
+_LOGO_BYTES: bytes = (_NOTIFICATIONS_DIR / "deeplook-vertical.png").read_bytes()
+
+_env.globals["logo_white_url"] = "cid:deeplook_logo_white"
+_env.globals["logo_url"] = "cid:deeplook_logo"
+
+
+def _capitalize_name(name: str) -> str:
+    """'kevin ore' → 'Kevin Ore'"""
+    return " ".join(w.capitalize() for w in name.split()) if name else name
+
 
 def _format_cop(amount: int | float | None) -> str:
     if amount is None:
@@ -68,7 +83,7 @@ class EmailService:
 
     async def send_welcome(self, *, to_email: str, name: str, business_name: str) -> bool:
         ctx = {
-            "name": name,
+            "name": _capitalize_name(name),
             "business_name": business_name,
             "dashboard_url": f"{settings.frontend_base_url}/app/inicio",
             "connect_url": f"{settings.frontend_base_url}/app/conectar",
@@ -92,7 +107,7 @@ class EmailService:
         pdf_bytes: bytes | None,
     ) -> bool:
         ctx = {
-            "name": name,
+            "name": _capitalize_name(name),
             "business_name": business_name,
             "conversation_count": conversation_count,
             "health_score": int(round(health_score)) if health_score is not None else None,
@@ -127,7 +142,7 @@ class EmailService:
         more than 14 days). The user must scan a fresh QR to restore service.
         """
         ctx = {
-            "name": name,
+            "name": _capitalize_name(name),
             "business_name": business_name,
             "connect_url": f"{settings.frontend_base_url}/app/conectar",
         }
@@ -156,7 +171,7 @@ class EmailService:
             "1d": f"Último día — renueva tu plan {plan.title()} hoy",
         }
         ctx = {
-            "name": name,
+            "name": _capitalize_name(name),
             "business_name": business_name,
             "plan": plan,
             "plan_label": plan.title(),
@@ -197,6 +212,23 @@ class EmailService:
             )
             return False
 
+        # Always attach logos as CID inline images so they render in every
+        # email client regardless of whether the frontend URL is reachable.
+        inline: list[dict] = [
+            {
+                "filename": "deeplook-logo-white.png",
+                "content": list(_LOGO_WHITE_BYTES),
+                "content_id": "deeplook_logo_white",
+                "content_type": "image/png",
+            },
+            {
+                "filename": "deeplook-logo.png",
+                "content": list(_LOGO_BYTES),
+                "content_id": "deeplook_logo",
+                "content_type": "image/png",
+            },
+        ]
+
         payload: dict = {
             "from": self.from_email,
             "to": [to],
@@ -204,14 +236,11 @@ class EmailService:
             "html": html,
             "text": text,
             "reply_to": self.reply_to,
-            # Transactional headers improve deliverability & set
-            # expectations with mailbox providers (no marketing intent).
             "headers": {
                 "X-Entity-Ref-ID": template,
             },
+            "attachments": inline + (attachments or []),
         }
-        if attachments:
-            payload["attachments"] = attachments
 
         try:
             resp = await asyncio.to_thread(resend.Emails.send, payload)

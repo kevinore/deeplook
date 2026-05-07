@@ -1,6 +1,7 @@
 {# Shared email layout — table-based for Outlook compatibility, inline CSS,
    max-width 600px, mobile-responsive. Uses brand colors:
    #4f46e5 primary, #a78bfa accent, #0e0749 navy, #f9fafb background.
+   Dark mode: full @media (prefers-color-scheme: dark) support via class overrides.
 #}<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -8,6 +9,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="x-apple-disable-message-reformatting">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>{% block title %}DeepLook{% endblock %}</title>
   <!--[if mso]>
   <style>
@@ -15,6 +18,8 @@
   </style>
   <![endif]-->
   <style>
+    :root { color-scheme: light dark; }
+
     @media only screen and (max-width: 620px) {
       .container { width: 100% !important; }
       .px-30     { padding-left: 24px !important; padding-right: 24px !important; }
@@ -22,9 +27,59 @@
       .h1        { font-size: 24px !important; line-height: 32px !important; }
       .stat-grid td { display: block !important; width: 100% !important; padding: 8px 0 !important; }
     }
+
+    @media (prefers-color-scheme: dark) {
+      /* ── Structural shells ── */
+      body,
+      .email-body-bg         { background-color: #121220 !important; color: #b8b9d8 !important; }
+      .email-outer-td        { background-color: #121220 !important; }
+      .email-card            { background-color: #1c1c30 !important; }
+      .email-content         { background-color: #1c1c30 !important; }
+      .email-footer          { background-color: #141422 !important; border-top-color: #383858 !important; }
+
+      /* ── Typography ── */
+      .dm-h1                 { color: #e2e2f5 !important; }
+      .dm-body               { color: #b8b9d8 !important; }
+      .dm-muted              { color: #8889a8 !important; }
+      .dm-very-muted         { color: #6a6b8a !important; }
+      .dm-strong             { color: #c8c9e8 !important; }
+      .dm-link               { color: #a78bfa !important; }
+      .dm-footer-text        { color: #8889a8 !important; }
+      .dm-footer-small       { color: #6a6b8a !important; }
+
+      /* ── Inner cards / box elements ── */
+      .dm-box                { background-color: #252540 !important; border-color: #383858 !important; }
+      .dm-box-title          { color: #e2e2f5 !important; }
+      .dm-box-text           { color: #8889a8 !important; }
+      .dm-stat-cell          { background-color: #252540 !important; border-color: #383858 !important; }
+      .dm-stat-label         { color: #8889a8 !important; }
+      .dm-stat-value         { color: #e2e2f5 !important; }
+
+      /* ── Health score card ── */
+      .dm-health-card        { background: linear-gradient(135deg, #1c1c30 0%, #252550 100%) !important; border-color: #383858 !important; }
+      .dm-health-label       { color: #8889a8 !important; }
+      .dm-health-score       { color: #e2e2f5 !important; }
+      .dm-health-denom       { color: #6a6b8a !important; }
+
+      /* ── Urgency banners ── */
+      .dm-banner-info        { background-color: #1a1a38 !important; }
+      .dm-banner-warning     { background-color: #2b2308 !important; }
+      .dm-banner-critical    { background-color: #2b1010 !important; }
+
+      /* ── Dividers ── */
+      .dm-divider            { border-top-color: #383858 !important; }
+
+      /* ── Step cards (welcome) ── */
+      .dm-step               { background-color: #252540 !important; }
+      .dm-step-title         { color: #e2e2f5 !important; }
+      .dm-step-text          { color: #8889a8 !important; }
+
+      /* ── Loss list items ── */
+      .dm-list-item          { color: #b8b9d8 !important; }
+    }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;-webkit-font-smoothing:antialiased;">
+<body class="email-body-bg" style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;-webkit-font-smoothing:antialiased;">
   <!-- Preheader (hidden preview text shown by inboxes) -->
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f4f7;">
     {% block preheader %}{% endblock %}
@@ -32,18 +87,25 @@
 
   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f4f4f7;">
     <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+      <td class="email-outer-td" align="center" style="padding:32px 16px;background-color:#f4f4f7;">
+        <table role="presentation" class="container email-card" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
 
           <!-- ── Header / brand bar ────────────────────────────────────── -->
           <tr>
-            <td style="background:linear-gradient(135deg,#0e0749 0%,#4f46e5 100%);padding:28px 40px;">
+            <td style="background:linear-gradient(135deg,#0e0749 0%,#4f46e5 100%);padding:24px 40px;">
               <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td style="font-size:22px;font-weight:700;letter-spacing:-0.3px;color:#ffffff;">
-                    Deep<span style="color:#a78bfa;">Look</span>
+                  <td valign="middle">
+                    <img
+                      src="{{ logo_white_url }}"
+                      alt="DeepLook"
+                      width="150"
+                      height="44"
+                      border="0"
+                      style="display:block;max-width:150px;height:auto;line-height:1;outline:none;text-decoration:none;"
+                    />
                   </td>
-                  <td align="right" style="font-size:12px;color:#c7d2fe;font-weight:500;letter-spacing:0.4px;text-transform:uppercase;">
+                  <td align="right" valign="middle" style="font-size:11px;color:#c7d2fe;font-weight:500;letter-spacing:0.5px;text-transform:uppercase;white-space:nowrap;">
                     Análisis de WhatsApp
                   </td>
                 </tr>
@@ -53,23 +115,23 @@
 
           <!-- ── Main content ──────────────────────────────────────────── -->
           <tr>
-            <td class="px-30 py-50" style="padding:48px 40px;">
+            <td class="email-content px-30 py-50" style="padding:48px 40px;background-color:#ffffff;">
               {% block content %}{% endblock %}
             </td>
           </tr>
 
           <!-- ── Footer ────────────────────────────────────────────────── -->
           <tr>
-            <td style="background-color:#f9fafb;padding:24px 40px;border-top:1px solid #e5e7eb;">
+            <td class="email-footer" style="background-color:#f9fafb;padding:24px 40px;border-top:1px solid #e5e7eb;">
               <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td style="font-size:12px;line-height:18px;color:#6b7280;">
+                  <td class="dm-footer-text" style="font-size:12px;line-height:18px;color:#6b7280;">
                     Este correo fue enviado automáticamente por <strong style="color:#4f46e5;">DeepLook</strong>.
                     Si tienes preguntas, responde directamente a este mensaje y te contactaremos.
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding-top:12px;font-size:11px;color:#9ca3af;">
+                  <td class="dm-footer-small" style="padding-top:12px;font-size:11px;color:#9ca3af;">
                     DeepLook — Análisis inteligente de conversaciones de WhatsApp Business para MiPymes en Colombia.
                   </td>
                 </tr>
