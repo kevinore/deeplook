@@ -546,7 +546,9 @@ async def _fetch_qr_for_connection(conn, db, waha: WahaClient) -> dict:
         try:
             if current_status == WahaSessionStatus.STOPPED.value:
                 await waha.start_session(conn.waha_session_name)
-            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
+            # NOWEB engine can take 45-60s to load Chromium + WhatsApp Web on a
+            # busy container. 30s was too short when multiple sessions start simultaneously.
+            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=60)).value
             await conn_repo.update(conn.id, status=current_status)
             await db.commit()
         except WahaSessionNotFoundError:
@@ -570,6 +572,14 @@ async def _fetch_qr_for_connection(conn, db, waha: WahaClient) -> dict:
         raise HTTPException(
             status_code=409,
             detail={"code": "ALREADY_CONNECTED", "message": "Session is already connected. No QR needed."},
+        )
+
+    # STARTING means WAHA is still loading Chromium — not an error, just not ready yet.
+    # Return a retriable 425 (Too Early) so the frontend knows to try again in a few seconds.
+    if current_status == WahaSessionStatus.STARTING.value:
+        raise HTTPException(
+            status_code=425,
+            detail={"code": "SESSION_STARTING", "message": "La sesión está iniciando. Intenta de nuevo en unos segundos."},
         )
 
     if current_status != WahaSessionStatus.SCAN_QR_CODE.value:
