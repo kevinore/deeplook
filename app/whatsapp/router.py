@@ -112,14 +112,70 @@ async def _get_connection_or_404(connection_id: str, user: CurrentUser, db: Asyn
 
 # --- Auto-sync helper ---
 
+async def _wait_for_waha_store(session_name: str, waha_client: WahaClient, max_wait: int = 300) -> None:
+    """
+    After a first-ever QR pairing, WAHA's NOWEB engine enters AwaitingInitialSync:
+    WhatsApp pushes message history to the new linked device asynchronously. Duration
+    depends on account size and network — small accounts take ~30s, large ones several
+    minutes. Instead of a fixed sleep, we poll every 15s until:
+      • At least one DM chat appears in the WAHA store  → proceed immediately
+      • max_wait (default 5 min) is reached             → proceed with whatever's available
+    """
+    poll_interval = 15
+    elapsed = 0
+    while elapsed < max_wait:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+        try:
+            chats = await waha_client.list_chats(session_name, limit=10)
+            dm_chats = [c for c in chats if not c.id.endswith("@g.us") and not c.archived]
+            if dm_chats:
+                logger.info(
+                    "WAHA store ready: %d DM chats after %ds [session=%s]",
+                    len(dm_chats), elapsed, session_name,
+                )
+                return
+        except Exception:
+            pass  # session may still be starting; retry next interval
+    logger.warning(
+        "WAHA store still empty after %ds — syncing with available data [session=%s]",
+        max_wait, session_name,
+    )
+
+
 async def _auto_sync_on_connect(connection_id: str, waha_client: WahaClient) -> None:
     """
     Fired as a background task the moment a QR is scanned (first WORKING transition).
     Creates and runs a sync job automatically, with quota guard and de-dupe check.
+
+    For first-ever syncs, waits for WAHA's store to be populated before fetching
+    (see _wait_for_waha_store). Incremental syncs proceed immediately.
     """
+    from app.config import settings
     from app.database import async_session_factory
 
     try:
+        # Check if this is a first-ever sync for this connection
+        async with async_session_factory() as session:
+            conn = await WhatsAppConnectionRepository(session).get(connection_id)
+            if conn is None:
+                return
+            is_first_sync = conn.last_sync_at is None
+            session_name = conn.waha_session_name
+
+        # For first-ever syncs: wait until WAHA's store is populated.
+        # WAHA enters AwaitingInitialSync after pairing — WhatsApp pushes history
+        # asynchronously and the duration depends on account size. We poll until
+        # DM chats appear rather than using a fixed delay.
+        if is_first_sync:
+            max_wait = getattr(settings, "waha_initial_sync_delay_seconds", 300)
+            logger.info(
+                "Auto-sync on first connect: polling for WAHA store readiness "
+                "(max %ds) [connection=%s]",
+                max_wait, connection_id,
+            )
+            await _wait_for_waha_store(session_name, waha_client, max_wait=max_wait)
+
         async with async_session_factory() as session:
             conn = await WhatsAppConnectionRepository(session).get(connection_id)
             if conn is None:
@@ -591,12 +647,28 @@ async def _fetch_qr_for_connection(conn, db, waha: WahaClient) -> dict:
     try:
         qr_base64 = await waha.get_qr_base64(conn.waha_session_name)
     except WahaError as e:
+        # Refresh live status before deciding what to return
+        live_status: str | None = None
         try:
             live = await waha.get_session(conn.waha_session_name)
-            await conn_repo.update(conn.id, status=live.status.value)
+            live_status = live.status.value
+            await conn_repo.update(conn.id, status=live_status)
             await db.commit()
         except (WahaError, httpx.RequestError):
             pass
+
+        # Session became WORKING while we were fetching QR (user just scanned) → not an error
+        if live_status == WahaSessionStatus.WORKING.value:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "ALREADY_CONNECTED", "message": "Session is already connected. No QR needed."},
+            )
+        # Session went STOPPED (e.g. sync completed) → retriable, not a 502
+        if live_status == WahaSessionStatus.STOPPED.value:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "SESSION_NOT_READY", "message": "La sesión se detuvo. Intenta de nuevo."},
+            )
         raise HTTPException(status_code=502, detail=f"Could not fetch QR: {e.message}")
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")

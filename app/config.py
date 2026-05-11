@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # When True, reject connections from personal WhatsApp accounts — only WhatsApp Business allowed.
     # Set WAHA_REQUIRE_BUSINESS_ACCOUNT=false to allow personal accounts (useful for dev/testing).
     waha_require_business_account: bool = True
+    # Max seconds to wait for WAHA's chat store to be populated after first QR pairing.
+    # The system polls every 15s and proceeds as soon as DM chats appear — no fixed sleep.
+    # This ceiling only kicks in if the store is still empty (e.g. account with 0 DMs).
+    # 300s (5 min) covers even accounts with thousands of chats.
+    waha_initial_sync_delay_seconds: int = 300
 
     # Scheduler
     enable_whatsapp_scheduler: bool = True
