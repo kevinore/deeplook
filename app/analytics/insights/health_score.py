@@ -3,10 +3,12 @@ Business health score calculator (0-100). Rule-based, no AI.
 
 Colombia MiPymes 6-component formula:
 - Response Speed         25%  First response time vs Colombia benchmarks
-- Response Coverage      15%  % of CONVERSATIONS that ended unanswered (chat-level, not message-level)
 - Customer Sentiment     20%  Weighted positive/neutral/negative split
-- Conversation Quality   15%  Average quality score × 10
+- Conversation Quality   20%  Average quality score × 10  ← raised from 15%; quality is a key
+                              differentiator of good vs poor service (COPC/ISO 18295 standard)
 - Conversion Effectiveness 15%  Conversion rate as percentage
+- Response Coverage      10%  % of CONVERSATIONS that ended unanswered (chat-level, not message-level)
+                              ← lowered from 15%; unanswered is partially captured in quality score
 - Operational Coverage   10%  % of in-business-hours customer messages answered within 1 h
                               (computed deterministically from message timestamps; falls back to 50
                               when no in-hours messages were observed)
@@ -71,7 +73,7 @@ def calculate_health_score(
     else:
         components.append((50.0, 0.0))
 
-    # 2. Response Coverage (15%) — % of CONVERSATIONS that ended without a business reply
+    # 2. Response Coverage (10%) — % of CONVERSATIONS that ended without a business reply
     # `unanswered_count` is now 0|1 per conversation, so the sum equals the
     # number of unanswered conversations and the denominator is len(results).
     total_convs = len(results)
@@ -79,7 +81,7 @@ def calculate_health_score(
     if total_convs > 0:
         unanswered_rate_pct = (unanswered_convs / total_convs) * 100
         coverage_score = _unanswered_rate_score(unanswered_rate_pct)
-        components.append((coverage_score, 0.15))
+        components.append((coverage_score, 0.10))
     else:
         components.append((50.0, 0.0))
 
@@ -100,11 +102,13 @@ def calculate_health_score(
     else:
         components.append((50.0, 0.0))
 
-    # 4. Conversation Quality (15%) — avg quality_score × 10 (converts 0-10 to 0-100)
+    # 4. Conversation Quality (20%) — avg quality_score × 10 (converts 0-10 to 0-100)
+    # Weight raised from 15% → 20%: quality is the primary differentiator of good vs
+    # poor customer service per COPC/ISO 18295 standards.
     quality_results = [r for r in results if r.quality_score is not None]
     if quality_results:
         avg_quality = sum(r.quality_score for r in quality_results) / len(quality_results)
-        components.append((avg_quality * 10, 0.15))
+        components.append((avg_quality * 10, 0.20))
     else:
         components.append((50.0, 0.0))
 
@@ -160,7 +164,7 @@ def get_health_score_breakdown(
     if rt_score is None:
         rt_score = 50.0
 
-    # 2. Response Coverage (15%) — chat-level
+    # 2. Response Coverage (10%) — chat-level
     total_convs = len(results)
     unanswered_convs = sum(r.unanswered_count for r in results)
     cov_score = _unanswered_rate_score((unanswered_convs / total_convs) * 100) if total_convs > 0 else 50.0
@@ -175,7 +179,7 @@ def get_health_score_breakdown(
     else:
         sent_score = 50.0
 
-    # 4. Quality (15%)
+    # 4. Quality (20%)
     quality_results = [r for r in results if r.quality_score is not None]
     qual_score = (sum(r.quality_score for r in quality_results) / len(quality_results) * 10) if quality_results else 50.0
 
@@ -193,10 +197,10 @@ def get_health_score_breakdown(
 
     dims = [
         ("Velocidad de respuesta",    "velocidad",         rt_score,   0.25, 25),
-        ("Cobertura de respuestas",   "cobertura",         cov_score,  0.15, 15),
         ("Sentimiento del cliente",   "sentimiento",       sent_score, 0.20, 20),
-        ("Calidad de atención",       "calidad",           qual_score, 0.15, 15),
+        ("Calidad de atención",       "calidad",           qual_score, 0.20, 20),
         ("Efectividad de conversión", "conversion",        conv_score, 0.15, 15),
+        ("Cobertura de respuestas",   "cobertura",         cov_score,  0.10, 10),
         ("Cobertura horaria",         "cobertura_horaria", op_score,   0.10, 10),
     ]
 

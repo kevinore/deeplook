@@ -46,6 +46,25 @@ class AnalysisJobRepository(BaseRepository[AnalysisJob]):
         )
         return result.scalar() or 0
 
+    async def count_by_connection_this_period(self, connection_id: str, period_start: datetime) -> int:
+        """Per-connection quota counter — same orphan-exclusion logic as count_by_client_this_period."""
+        from datetime import datetime, timezone, timedelta
+        orphan_cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        result = await self.session.execute(
+            select(func.count(AnalysisJob.id)).where(
+                AnalysisJob.connection_id == connection_id,
+                AnalysisJob.created_at >= period_start,
+                or_(
+                    AnalysisJob.status == "completed",
+                    and_(
+                        AnalysisJob.status.in_(["pending", "processing"]),
+                        AnalysisJob.created_at >= orphan_cutoff,
+                    ),
+                ),
+            )
+        )
+        return result.scalar() or 0
+
     async def list_by_clients(self, client_ids: list[str]) -> list[AnalysisJob]:
         """Single batch query for multiple clients."""
         if not client_ids:

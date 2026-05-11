@@ -4,6 +4,12 @@ Much simpler than txt_parser: no regex, no timestamp guessing.
 Produces the same NormalizedBatch shape so store_batch() and all downstream
 analytics work without any changes.
 
+Each WhatsApp chat (contact) becomes exactly ONE NormalizedConversation covering
+the full lookback window. This gives a deterministic, plan-aligned quota:
+  Basic   → top 100 most-recent contacts, messages from last 30 days each
+  Plus    → top 300 contacts, last 90 days
+  Enterprise → top 1000 contacts, last 180 days
+
 Captures the rich chat-level metadata that WAHA returns (unreadCount, isMuted,
 archived, lastMessage info, etc.) so deterministic metrics — delivery_rate,
 read_rate, ghosted_rate, and operational coverage — can be computed
@@ -11,17 +17,13 @@ without involving the AI.
 """
 import asyncio
 import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 
-from app.ingestion.sessionizer import (
-    DEFAULT_SESSION_GAP_HOURS,
-    filter_junk,
-    split_batch_into_sessions,
-)
 from app.integrations.waha.client import WahaClient
 from app.integrations.waha.models import WahaChatOverview, WahaMessage
 from app.models.enums import MessageDirection, MessageType
@@ -55,8 +57,10 @@ _TYPE_MAP: dict[str, MessageType] = {
     "sticker": MessageType.STICKER,
 }
 
-_PAUSE_BETWEEN_PAGES = 0.3   # seconds between paginated pages of the SAME chat
+_PAUSE_BETWEEN_PAGES = 0.8   # seconds between paginated pages of the SAME chat
 _WAHA_FETCH_CONCURRENCY = 3  # concurrent chat fetches — conservative for WAHA Core (single Chromium)
+_DELAY_BEFORE_FETCH = (0.2, 0.7)  # (min, max) random seconds before fetching each chat's messages
+_MIN_MESSAGES_PER_CHAT = 2   # chats with fewer real messages are dropped (noise)
 
 
 @dataclass
@@ -66,8 +70,8 @@ class WahaQualityReport:
     chats_skipped_groups: int = 0
     chats_skipped_archived: int = 0
     chats_skipped_muted: int = 0
-    chats_dropped_junk: int = 0
-    sessions_produced: int = 0
+    chats_dropped_too_small: int = 0
+    chats_analyzed: int = 0
     messages_skipped_system: int = 0
     date_range_start: Optional[datetime] = None
     date_range_end: Optional[datetime] = None
@@ -118,17 +122,16 @@ async def build_batch_from_waha(
     since_datetime: datetime,
     me_phone: Optional[str] = None,
     max_chats: Optional[int] = None,
-    session_gap_hours: float = DEFAULT_SESSION_GAP_HOURS,
-    min_messages_per_session: int = 2,
+    min_messages_per_chat: int = _MIN_MESSAGES_PER_CHAT,
 ) -> NormalizedBatch:
     """
-    Pull all DM conversations from WAHA since `since_datetime`, split each chat
-    into independent sessions (gap >= `session_gap_hours`), drop junk sessions
-    (< `min_messages_per_session` messages), and return a NormalizedBatch ready
-    for store_batch().
+    Pull all DM chats from WAHA active since `since_datetime`.
+    Each chat becomes ONE NormalizedConversation covering the full lookback window.
+    Chats are returned most-recently-active first; `max_chats` caps the total.
+
+    This gives a deterministic quota: N chats = N conversations analysed.
     """
     report = WahaQualityReport()
-    raw_chat_conversations: list[NormalizedConversation] = []
 
     since_ts = int(since_datetime.timestamp())
 
@@ -141,9 +144,9 @@ async def build_batch_from_waha(
     dm_chats = [c for c in all_chats if not c.id.endswith("@g.us")]
     report.chats_skipped_groups = len(all_chats) - len(dm_chats)
 
-    # Archived chats: customer/business intentionally hid them — do not analyse
-    # (silence ≠ lack of attention). Keep muted in the analysis but flag them
-    # so health-score "coverage" is computed correctly downstream.
+    # Archived chats: customer/business intentionally hid them — do not analyse.
+    # Muted chats ARE kept (flagged with wa_is_muted=True so health-score
+    # "coverage" is computed correctly downstream).
     visible_chats: list[WahaChatOverview] = []
     for c in dm_chats:
         if c.archived:
@@ -151,12 +154,10 @@ async def build_batch_from_waha(
             continue
         if c.isMuted:
             report.chats_skipped_muted += 1
-            # NOT skipped — kept for analysis with wa_is_muted=True; downstream
-            # logic decides whether to count them in unanswered metrics.
         visible_chats.append(c)
 
     # Apply chat cap — list_chats returns most-recently-active first, so this
-    # keeps the N most active conversations and discards the rest.
+    # keeps the N most recently active contacts and discards the rest.
     effective_max = max_chats if max_chats is not None else settings.waha_max_chats
     if effective_max > 0:
         visible_chats = visible_chats[:effective_max]
@@ -164,12 +165,17 @@ async def build_batch_from_waha(
     sem = asyncio.Semaphore(_WAHA_FETCH_CONCURRENCY)
 
     async def _fetch_one_chat(chat: WahaChatOverview) -> Optional[tuple[NormalizedConversation, dict]]:
-        """Fetch one chat inside the semaphore. Returns (conversation, partial_report) or None."""
+        """
+        Fetch all messages for one chat in the lookback window.
+        Returns a single NormalizedConversation covering the full period.
+        """
         chat_phone = _strip_suffix(chat.id)
         chat_name = chat.name
         all_messages: list[WahaMessage] = []
 
         async with sem:
+            # Small random pause — simulates natural per-chat read cadence
+            await asyncio.sleep(random.uniform(*_DELAY_BEFORE_FETCH))
             try:
                 offset = 0
                 page_size = 500
@@ -235,6 +241,8 @@ async def build_batch_from_waha(
 
     chat_results = await asyncio.gather(*[_fetch_one_chat(c) for c in visible_chats])
 
+    final_conversations: list[NormalizedConversation] = []
+
     for conv, partial in chat_results:
         report.total_messages_fetched += partial.get("messages", 0)
         report.messages_skipped_system += partial.get("skipped_system", 0)
@@ -245,6 +253,11 @@ async def build_batch_from_waha(
         if conv is None:
             continue
 
+        # Drop chats with too few messages (noise / misdirected texts)
+        if len(conv.messages) < min_messages_per_chat:
+            report.chats_dropped_too_small += 1
+            continue
+
         timestamps = [m.timestamp for m in conv.messages]
         earliest, latest = min(timestamps), max(timestamps)
         if report.date_range_start is None or earliest < report.date_range_start:
@@ -252,22 +265,12 @@ async def build_batch_from_waha(
         if report.date_range_end is None or latest > report.date_range_end:
             report.date_range_end = latest
 
-        raw_chat_conversations.append(conv)
+        final_conversations.append(conv)
 
-    # ─── Sessionize & filter ───────────────────────────────────────────────
-    # 1) Split each chat into independent sessions wherever messages are
-    #    separated by ≥ session_gap_hours (default 6h).
-    sessionized = split_batch_into_sessions(raw_chat_conversations, gap_hours=session_gap_hours)
-    # 2) Drop sessions too small to analyse meaningfully. A "session" with 1
-    #    isolated message is rarely a real interaction — usually a misdirected
-    #    text or a one-off greeting.
-    pre_filter = len(sessionized)
-    final_conversations = filter_junk(sessionized, min_messages=min_messages_per_session)
-    report.chats_dropped_junk = pre_filter - len(final_conversations)
-    report.sessions_produced = len(final_conversations)
+    report.chats_analyzed = len(final_conversations)
 
     if not final_conversations:
-        report.warnings.append("No analysable sessions found in the sync window")
+        report.warnings.append("No analysable chats found in the sync window")
 
     return NormalizedBatch(
         client_id=client_id,
@@ -280,14 +283,13 @@ async def build_batch_from_waha(
                 "chats_skipped_groups": report.chats_skipped_groups,
                 "chats_skipped_archived": report.chats_skipped_archived,
                 "chats_skipped_muted": report.chats_skipped_muted,
-                "chats_dropped_junk": report.chats_dropped_junk,
-                "sessions_produced": report.sessions_produced,
+                "chats_dropped_too_small": report.chats_dropped_too_small,
+                "chats_analyzed": report.chats_analyzed,
                 "messages_skipped_system": report.messages_skipped_system,
                 "date_range_start": report.date_range_start.isoformat() if report.date_range_start else None,
                 "date_range_end": report.date_range_end.isoformat() if report.date_range_end else None,
                 "confidence_score": report.confidence_score,
                 "warnings": report.warnings,
-                "session_gap_hours": session_gap_hours,
             }
         },
     )

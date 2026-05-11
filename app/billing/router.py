@@ -5,14 +5,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser, get_current_user
-from app.billing.quotas import PLAN_LIMITS, build_quota_status, get_billing_period
-from app.billing.wompi import compute_integrity, get_plan_amount, make_reference
+from app.billing.quotas import CONNECTIONS_INCLUDED, EXTRA_CONNECTION_PRICE_COP, PLAN_LIMITS, build_quota_status, get_billing_period, get_connections_limit
+from app.billing.wompi import compute_integrity, get_extra_connection_amount, get_plan_amount, make_reference
 from app.config import settings
 from app.dependencies import get_db
 from app.repositories.analysis_repo import AnalysisJobRepository
 from app.repositories.client_repo import ClientRepository
 from app.repositories.payment_repo import PaymentSessionRepository
 from app.repositories.trial_code_repo import TrialCodeRepository
+from app.repositories.whatsapp_connection_repo import WhatsAppConnectionRepository
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
@@ -25,7 +26,7 @@ PLAN_DISPLAY = {
 
 @router.get("/plans")
 async def list_plans() -> list[dict]:
-    """Return all purchasable plans with prices and feature limits."""
+    """Return all purchasable plans with prices, feature limits, and connection data."""
     plans = []
     for key in ("basic", "plus", "enterprise"):
         limits = PLAN_LIMITS[key]
@@ -36,6 +37,8 @@ async def list_plans() -> list[dict]:
             "description": display["description"],
             "price_cop": display["price_cop"],
             "amount_in_cents": get_plan_amount(key),
+            "connections_included": CONNECTIONS_INCLUDED[key],
+            "extra_connection_price_cop": EXTRA_CONNECTION_PRICE_COP.get(key, 0),
             "features": {
                 "reports_per_month": limits["reports_per_month"],
                 "conversations_per_report": limits["conversations_per_report"],
@@ -49,6 +52,8 @@ async def list_plans() -> list[dict]:
 
 class PaymentSessionRequest(BaseModel):
     plan: str
+    extra_connections: int = Field(default=0, ge=0, le=20)
+    connections_only: bool = False  # True = adding slots to existing plan, skip base price
 
 
 @router.post("/payment-session")
@@ -70,7 +75,19 @@ async def create_payment_session(
         raise HTTPException(status_code=404, detail="Client profile not found.")
     client = clients[0]
 
-    amount_in_cents = get_plan_amount(body.plan)
+    extra_price_cop = EXTRA_CONNECTION_PRICE_COP.get(body.plan, 0)
+    extra_cents = get_extra_connection_amount(body.plan) * body.extra_connections
+
+    if body.connections_only:
+        # Adding slots to existing active plan — charge only for the extra connections
+        if body.extra_connections < 1:
+            raise HTTPException(status_code=422, detail="connections_only requires at least 1 extra_connection.")
+        amount_in_cents = extra_cents
+        total_price_cop = extra_price_cop * body.extra_connections
+    else:
+        amount_in_cents = get_plan_amount(body.plan) + extra_cents
+        total_price_cop = PLAN_DISPLAY[body.plan]["price_cop"] + extra_price_cop * body.extra_connections
+
     reference = make_reference(str(client.id), body.plan)
     integrity = compute_integrity(reference, amount_in_cents, "COP")
 
@@ -80,6 +97,8 @@ async def create_payment_session(
         amount_in_cents=amount_in_cents,
         reference=reference,
         status="pending",
+        extra_connections=body.extra_connections,
+        connections_only=body.connections_only,
     )
     await db.commit()
 
@@ -93,7 +112,10 @@ async def create_payment_session(
         "redirect_url": f"{settings.wompi_redirect_base_url}/pago-exitoso?ref={reference}",
         "plan": body.plan,
         "plan_label": PLAN_DISPLAY[body.plan]["label"],
-        "price_cop": PLAN_DISPLAY[body.plan]["price_cop"],
+        "price_cop": total_price_cop,
+        "extra_connections": body.extra_connections,
+        "connections_included": CONNECTIONS_INCLUDED[body.plan],
+        "extra_connection_price_cop": extra_price_cop,
     }
 
 
@@ -164,6 +186,17 @@ async def get_quota(
     )
     quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
 
+    # Connection count and limits for billing display
+    connections = await WhatsAppConnectionRepository(db).list_by_client(str(client.id))
+    connection_count = len(connections)
+    conn_limit = get_connections_limit(client.plan, getattr(client, "connections_limit", None))
+    connections_remaining = max(0, conn_limit - connection_count)
+    extra_price_cop = EXTRA_CONNECTION_PRICE_COP.get(client.plan, 0)
+    plan_price = PLAN_DISPLAY.get(client.plan, {}).get("price_cop", 0)
+    included = CONNECTIONS_INCLUDED.get(client.plan, 0)
+    extra_paid = max(0, conn_limit - included)
+    monthly_total_cop = plan_price + extra_paid * extra_price_cop if client.plan != "free" else 0
+
     # Compute days remaining and renewal urgency
     now = datetime.now(tz=timezone.utc)
     days_remaining: int | None = None
@@ -203,6 +236,11 @@ async def get_quota(
             "manual_upload": quota.manual_upload,
             "trends_dashboard": quota.trends_dashboard,
         },
+        "connection_count": connection_count,
+        "connections_limit": conn_limit,
+        "connections_remaining": connections_remaining,
+        "extra_connection_price_cop": extra_price_cop,
+        "monthly_total_cop": monthly_total_cop,
     }
 
 

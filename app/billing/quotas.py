@@ -2,6 +2,24 @@ import calendar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+# Connections included per plan (no extra charge)
+CONNECTIONS_INCLUDED: dict[str, int] = {
+    "free": 0, "basic": 1, "plus": 1, "enterprise": 2,
+}
+
+# Extra connection price in COP beyond included ones
+EXTRA_CONNECTION_PRICE_COP: dict[str, int] = {
+    "basic": 120_000, "plus": 180_000, "enterprise": 150_000,
+}
+
+
+def get_connections_limit(plan: str, connections_limit_field: int | None) -> int:
+    """Effective max connections. Uses DB field when set, falls back to plan default."""
+    if connections_limit_field is not None:
+        return connections_limit_field
+    return CONNECTIONS_INCLUDED.get(plan, 0)
+
+
 # Single source of truth for plan limits.
 # Mirrors PLANES_Y_PRECIOS.md exactly.
 PLAN_LIMITS: dict[str, dict] = {

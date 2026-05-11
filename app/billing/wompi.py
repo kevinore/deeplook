@@ -75,3 +75,13 @@ def get_plan_amount(plan: str) -> int:
     if not amount:
         raise ValueError(f"Unknown or free plan: {plan}")
     return amount
+
+
+def get_extra_connection_amount(plan: str) -> int:
+    """Price in centavos for one additional connection beyond the plan's included slots."""
+    mapping = {
+        "basic":      settings.wompi_extra_basic_cents,
+        "plus":       settings.wompi_extra_plus_cents,
+        "enterprise": settings.wompi_extra_enterprise_cents,
+    }
+    return mapping.get(plan, 0)

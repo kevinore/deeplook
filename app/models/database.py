@@ -51,6 +51,8 @@ class Client(Base):
     policies_accepted_at = Column(DateTime(timezone=True), nullable=True)
     # Set when the client redeems a trial code; non-null = trial already used.
     trial_redeemed_at = Column(DateTime(timezone=True), nullable=True)
+    # Max WhatsApp connections allowed. NULL = use plan default (CONNECTIONS_INCLUDED[plan]).
+    connections_limit = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -59,7 +61,7 @@ class Client(Base):
     conversations = relationship("Conversation", back_populates="client", cascade="all, delete-orphan")
     analysis_jobs = relationship("AnalysisJob", back_populates="client", cascade="all, delete-orphan")
     daily_metrics = relationship("DailyMetrics", back_populates="client", cascade="all, delete-orphan")
-    whatsapp_connection = relationship("WhatsAppConnection", back_populates="client", uselist=False, cascade="all, delete-orphan")
+    whatsapp_connections = relationship("WhatsAppConnection", back_populates="client", uselist=True, cascade="all, delete-orphan")
     payment_sessions = relationship("PaymentSession", back_populates="client", cascade="all, delete-orphan")
 
 
@@ -132,8 +134,11 @@ class AnalysisJob(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    connection_id = Column(UUID(as_uuid=False), ForeignKey("whatsapp_connections.id", ondelete="SET NULL"), nullable=True)
+
     client = relationship("Client", back_populates="analysis_jobs")
     analyses = relationship("ConversationAnalysis", back_populates="job")
+    connection = relationship("WhatsAppConnection", foreign_keys=[connection_id])
 
 
 class ConversationAnalysis(Base):
@@ -199,7 +204,8 @@ class WhatsAppConnection(Base):
     __tablename__ = "whatsapp_connections"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, unique=True)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    display_name = Column(String(100), nullable=True)
     waha_session_name = Column(String(64), nullable=False, unique=True)
     status = Column(String(30), default="STOPPED", nullable=False)
     phone_number = Column(String(50), nullable=True)
@@ -208,18 +214,17 @@ class WhatsAppConnection(Base):
     last_sync_job_id = Column(UUID(as_uuid=False), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True)
     sync_frequency = Column(String(20), default="monthly", nullable=False)
     next_scheduled_sync_at = Column(DateTime(timezone=True), nullable=True)
-    # Last time we successfully touched the WAHA session (sync OR keepalive).
-    # Drives the keepalive job — bumped to "now" whenever we wake the session
-    # to prevent WhatsApp's 14-day idle device-unlink rule.
     last_session_active_at = Column(DateTime(timezone=True), nullable=True)
-    # True = WhatsApp Business, False = personal, None = not yet checked.
     is_business_account = Column(Boolean, nullable=True)
     last_reconnect_email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    # QR sharing: short-lived token for unauthenticated QR access
+    share_token = Column(UUID(as_uuid=False), nullable=True, unique=True)
+    share_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    client = relationship("Client", back_populates="whatsapp_connection")
-    last_sync_job = relationship("AnalysisJob")
+    client = relationship("Client", back_populates="whatsapp_connections")
+    last_sync_job = relationship("AnalysisJob", foreign_keys=[last_sync_job_id])
 
     __table_args__ = (
         Index("ix_whatsapp_connections_next_sync", "next_scheduled_sync_at", "status"),
@@ -238,6 +243,10 @@ class PaymentSession(Base):
     # pending → approved | declined | voided | error
     status = Column(String(30), default="pending", nullable=False)
     wompi_transaction_id = Column(String(200), nullable=True)
+    # Number of extra connections paid for beyond the plan's included slots
+    extra_connections = Column(Integer, default=0, nullable=False, server_default="0")
+    # True = adding slots to existing active plan (charge extra only, no plan renewal)
+    connections_only = Column(Boolean, default=False, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     client = relationship("Client", back_populates="payment_sessions")

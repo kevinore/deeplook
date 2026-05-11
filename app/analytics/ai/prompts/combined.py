@@ -68,11 +68,11 @@ CONTEXTO: En WhatsApp Business la mayoría de clientes son neutros — preguntan
 
 • NEGATIVE (score -1.0 a -0.2):
   - El cliente expresó frustración, molestia o queja explícita
-  - El cliente mencionó que el precio es muy alto o que busca otra opción
+  - El cliente rechazó el servicio POR precio Y se despidió o no continuó — una objeción de precio sola (sin rechazo explícito) NO es NEGATIVE; es NEUTRAL si el cliente seguía evaluando
   - El cliente abandonó bruscamente después de una respuesta del negocio
-  - El cliente tuvo que repetir la misma pregunta varias veces (señal de frustración)
+  - El cliente tuvo que repetir la misma pregunta varias veces (señal de frustración, no de mala intención)
   - Usó lenguaje seco, sarcástico o cortante al final
-  - is_ghosted=true Y la última respuesta del negocio fue claramente insuficiente
+  - is_ghosted=true Y la última respuesta del negocio fue claramente insuficiente o tardó mucho
 
 ═══════════════════════════════════════════════
 TEMA (primary_topic, secondary_topics) — LISTA CERRADA
@@ -120,13 +120,14 @@ FALLAS DE CLARIDAD (descuentan en helpfulness y completeness):
 □ ¿El cliente preguntó algo Y el negocio respondió otra cosa (o respondió parcialmente)?
 □ ¿El cliente tuvo que repetir la pregunta o aclarar?
 
-FALLAS DE SINTAXIS Y PROFESIONALISMO (descuentan en tone):
+FALLAS DE SINTAXIS, PROFESIONALISMO Y EMPATÍA (descuentan en tone):
 □ ¿Errores ortográficos evidentes del negocio?
 □ ¿Mensajes sin signos de puntuación que dificulten la lectura?
 □ ¿Uso excesivo de mayúsculas (percibido como gritar)?
 □ ¿Respuestas cortadas o incompletas por escribir rápido?
 □ ¿Falta de saludo inicial o despedida básica?
 □ ¿Mensajes fragmentados en 5-6 partes que confunden el hilo?
+□ SOLO en conversaciones con reclamo/queja: ¿El negocio reconoció la situación del cliente? ("Entiendo tu molestia", "vamos a solucionarlo") — La empatía en quejas es obligatoria para tone ≥ 7. Un negocio profesional pero frío ante una queja tiene tone máximo 6.
 
 FALLAS DE COMPLETITUD (descuentan en completeness):
 □ ¿Faltó información crítica que el cliente claramente necesitaba (precio, ubicación, duración, próximos pasos)?
@@ -139,6 +140,7 @@ Escalas EXIGENTES de 0 a 10:
 ───────────────────────────────────────────────
 
 • helpfulness (utilidad): ¿Resolvió exactamente lo que el cliente preguntó?
+  - REGLA ABSOLUTA: Si el negocio NO envió NINGÚN mensaje (0 outbound), helpfulness = 0, tone = 0, completeness = 0. El quality_score = 0.0. No hay evaluación posible de algo que no ocurrió.
   - 9-10: RESERVADO. Anticipó necesidades adicionales, dio valor extra (catálogo, paso a paso).
   - 7-8: Respondió bien lo preguntado, sin anticipar dudas obvias.
   - 5-6: Respondió parcialmente o el cliente tuvo que volver a preguntar.
@@ -342,6 +344,7 @@ _BASE_TOPICS = [
     ('horarios', 'cliente pregunta por horario de atención del negocio'),
     ('pedido', 'cliente quiere hacer una compra u ordenar algo específico'),
     ('garantía', 'cliente pregunta por políticas de devolución, garantía, reembolso'),
+    ('envío/domicilio', 'cliente pregunta por servicio a domicilio, cobertura de entregas, costo de envío'),
     ('consulta general', 'cualquier otra cosa'),
 ]
 

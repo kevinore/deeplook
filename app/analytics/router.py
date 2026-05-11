@@ -21,6 +21,7 @@ from app.models.schemas import (
 from app.repositories.analysis_repo import AnalysisJobRepository, ConversationAnalysisRepository
 from app.repositories.client_repo import ClientRepository
 from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.whatsapp_connection_repo import WhatsAppConnectionRepository
 
 router = APIRouter(tags=["Analytics"])
 
@@ -40,6 +41,16 @@ async def list_jobs(
         all_jobs.extend(await AnalysisJobRepository(db).list_by_client(str(client.id)))
 
     all_jobs.sort(key=lambda j: j.created_at, reverse=True)
+
+    # Batch-load connection display names for all jobs that have a connection_id
+    conn_ids = list({j.connection_id for j in all_jobs if j.connection_id})
+    conn_name_map: dict[str, str] = {}
+    if conn_ids:
+        conn_repo = WhatsAppConnectionRepository(db)
+        for cid in conn_ids:
+            c = await conn_repo.get(cid)
+            if c:
+                conn_name_map[cid] = c.display_name or c.push_name or "WhatsApp"
 
     results = []
     for job in all_jobs:
@@ -61,6 +72,8 @@ async def list_jobs(
                 total_cost_usd=job.total_cost_usd,
                 ai_provider=job.ai_provider,
                 ai_model=job.ai_model,
+                connection_id=job.connection_id,
+                connection_name=conn_name_map.get(job.connection_id) if job.connection_id else None,
             )
         )
     return results

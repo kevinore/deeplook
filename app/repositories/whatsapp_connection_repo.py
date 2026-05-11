@@ -1,4 +1,5 @@
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +12,13 @@ class WhatsAppConnectionRepository(BaseRepository[WhatsAppConnection]):
     def __init__(self, session: AsyncSession):
         super().__init__(WhatsAppConnection, session)
 
-    async def get_by_client(self, client_id: str) -> WhatsAppConnection | None:
+    async def list_by_client(self, client_id: str) -> list[WhatsAppConnection]:
         result = await self.session.execute(
-            select(WhatsAppConnection).where(WhatsAppConnection.client_id == client_id)
+            select(WhatsAppConnection)
+            .where(WhatsAppConnection.client_id == client_id)
+            .order_by(WhatsAppConnection.created_at.asc())
         )
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())
 
     async def get_by_session_name(self, session_name: str) -> WhatsAppConnection | None:
         result = await self.session.execute(
@@ -23,8 +26,26 @@ class WhatsAppConnectionRepository(BaseRepository[WhatsAppConnection]):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_share_token(self, token: str) -> WhatsAppConnection | None:
+        now = datetime.now(tz=timezone.utc)
+        result = await self.session.execute(
+            select(WhatsAppConnection).where(
+                WhatsAppConnection.share_token == token,
+                WhatsAppConnection.share_token_expires_at > now,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def generate_share_token(self, connection_id: str, ttl_hours: int = 24) -> str:
+        token = str(uuid.uuid4())
+        expires = datetime.now(tz=timezone.utc) + timedelta(hours=ttl_hours)
+        await self.update(connection_id, share_token=token, share_token_expires_at=expires)
+        return token
+
+    async def invalidate_share_token(self, connection_id: str) -> None:
+        await self.update(connection_id, share_token=None, share_token_expires_at=None)
+
     async def get_pending_syncs(self, now: datetime) -> list[WhatsAppConnection]:
-        """Return connections whose scheduled sync is due and whose client has an active plan."""
         result = await self.session.execute(
             select(WhatsAppConnection)
             .join(Client, WhatsAppConnection.client_id == Client.id)
@@ -38,16 +59,6 @@ class WhatsAppConnectionRepository(BaseRepository[WhatsAppConnection]):
         return list(result.scalars().all())
 
     async def get_due_keepalives(self, cutoff: datetime) -> list[WhatsAppConnection]:
-        """
-        Return connections that need a keepalive ping — i.e., connections that
-        have been idle (no sync, no prior keepalive) since `cutoff`. Skips
-        already-broken sessions (SCAN_QR_CODE / FAILED) since those need
-        user action; pinging them won't help.
-
-        Pre-paired sessions with no `last_session_active_at` (e.g., brand-new
-        connections that never synced) are intentionally NOT picked up — they
-        either get their first sync soon, or there's nothing to keep alive.
-        """
         result = await self.session.execute(
             select(WhatsAppConnection)
             .join(Client, WhatsAppConnection.client_id == Client.id)

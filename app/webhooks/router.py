@@ -87,23 +87,38 @@ async def wompi_webhook(request: Request, db: AsyncSession = Depends(get_db)) ->
         else:
             base = now
 
-        from app.billing.quotas import _add_one_month
-        new_expires_at = _add_one_month(base.year, base.month, base.day)
+        from app.billing.quotas import CONNECTIONS_INCLUDED, get_connections_limit, _add_one_month
+        extra = getattr(session, "extra_connections", 0) or 0
+        connections_only = getattr(session, "connections_only", False) or False
 
-        await client_repo.update(
-            str(session.client_id),
-            plan=session.plan,
-            plan_started_at=now,
-            plan_expires_at=new_expires_at,
-            subscription_status="active",
-            # Reset renewal-email tracking so the next cycle re-emits the reminders.
-            last_renewal_email_stage=None,
-            last_renewal_email_sent_at=None,
-        )
-        logger.info(
-            "Wompi webhook: activated plan=%s for client=%s (tx=%s) expires=%s",
-            session.plan, session.client_id, wompi_tx_id, new_expires_at.isoformat(),
-        )
+        if connections_only:
+            # Only add slots — do not renew plan or touch expiry dates
+            current_limit = get_connections_limit(client.plan, getattr(client, "connections_limit", None))
+            await client_repo.update(
+                str(session.client_id),
+                connections_limit=current_limit + extra,
+            )
+            logger.info(
+                "Wompi webhook: added %d connection slot(s) for client=%s (tx=%s) new_limit=%d",
+                extra, session.client_id, wompi_tx_id, current_limit + extra,
+            )
+        else:
+            new_expires_at = _add_one_month(base.year, base.month, base.day)
+            new_connections_limit = CONNECTIONS_INCLUDED.get(session.plan, 1) + extra
+            await client_repo.update(
+                str(session.client_id),
+                plan=session.plan,
+                plan_started_at=now,
+                plan_expires_at=new_expires_at,
+                subscription_status="active",
+                connections_limit=new_connections_limit,
+                last_renewal_email_stage=None,
+                last_renewal_email_sent_at=None,
+            )
+            logger.info(
+                "Wompi webhook: activated plan=%s for client=%s (tx=%s) expires=%s",
+                session.plan, session.client_id, wompi_tx_id, new_expires_at.isoformat(),
+            )
 
     await db.commit()
     return {"status": "ok"}

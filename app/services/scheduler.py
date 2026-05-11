@@ -62,8 +62,8 @@ async def _safe_sync(connection_id: str, waha_client) -> None:
                 return
 
             period_start, _ = get_billing_period(client.plan_started_at)
-            jobs_used = await AnalysisJobRepository(session).count_by_client_this_period(
-                str(client.id), period_start
+            jobs_used = await AnalysisJobRepository(session).count_by_connection_this_period(
+                connection_id, period_start
             )
             quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
             if quota.reports_remaining == 0:

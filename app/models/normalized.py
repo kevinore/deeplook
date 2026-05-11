@@ -31,9 +31,14 @@ class NormalizedMessage(BaseModel):
 
 class NormalizedConversation(BaseModel):
     """
-    A single conversational session. After session-splitting (see
-    app.ingestion.sessionizer) one WhatsApp chat may produce multiple
-    NormalizedConversation objects — each evaluated independently.
+    A single conversation with one contact.
+
+    For WAHA sources: one WhatsApp chat (contact) = one NormalizedConversation
+    covering the full lookback window (e.g., last 30 days for Basic plan).
+
+    For txt_upload sources: the sessionizer may split a single chat export into
+    multiple NormalizedConversation objects based on time gaps; session_index /
+    session_count track the position within that split.
 
     WAHA-only fields (`wa_*`) carry chat-level metadata captured at sync time.
     These are None for .txt-uploaded conversations.
@@ -43,7 +48,7 @@ class NormalizedConversation(BaseModel):
     messages: list[NormalizedMessage] = Field(default_factory=list)
     source: str  # "txt_upload", "meta_api", "meta_history", "waha"
 
-    # Session-split bookkeeping (see app.ingestion.sessionizer)
+    # Session-split bookkeeping (used by txt_upload sessionizer; always 0/1 for waha)
     session_index: int = 0           # 0 = first session of this chat in the batch
     session_count: int = 1           # how many sessions this chat was split into
 

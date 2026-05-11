@@ -106,19 +106,26 @@ async def download_report(
     try:
         from app.delivery.reports.pdf_generator import generate_pdf_report
 
-        # Get business name from client
+        # Get business name and account name
         from app.repositories.client_repo import ClientRepository
+        from app.repositories.whatsapp_connection_repo import WhatsAppConnectionRepository
         client_repo = ClientRepository(db)
         client = await client_repo.get(job.client_id)
         business_name = client.business_name if client else "Business"
 
-        # F1 — fetch the immediately previous COMPLETED job for this client so
-        # the PDF can render a "vs reporte anterior" comparison block. We pick
-        # the most recent completed job whose created_at < this job's created_at.
+        account_name: str | None = None
+        if job.connection_id:
+            conn = await WhatsAppConnectionRepository(db).get(job.connection_id)
+            if conn:
+                account_name = conn.display_name or conn.push_name or None
+
+        # F1 — previous COMPLETED job for the same connection (or client for txt uploads)
         previous_results: list[ConversationAnalysisResult] = []
         previous_job_created_at = None
         try:
             sibling_jobs = await job_repo.list_by_client(str(job.client_id))
+            if job.connection_id:
+                sibling_jobs = [j for j in sibling_jobs if j.connection_id == job.connection_id]
             prev_job = next(
                 (j for j in sibling_jobs
                  if j.status == "completed"
@@ -155,6 +162,7 @@ async def download_report(
             ai_model=job.ai_model or "unknown",
             average_transaction_value=client.average_transaction_value if client else None,
             business_type=client.business_type if client else None,
+            account_name=account_name,
             previous_results=previous_results,
             previous_job_created_at=previous_job_created_at,
         )
@@ -162,10 +170,14 @@ async def download_report(
         logger.exception("PDF generation failed for job %s", job_id)
         raise ReportGenerationError(str(job_id), str(exc)) from exc
 
+    import re as _re
+    name_slug = ("-" + _re.sub(r"[^a-z0-9]+", "-", account_name.lower()).strip("-")[:28]) if account_name else ""
+    safe_name = f"reporte-deeplook{name_slug}-{str(job_id)[:8]}.pdf"
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="deeplook-report-{job_id}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
 
 

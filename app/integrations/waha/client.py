@@ -129,7 +129,9 @@ class WahaClient:
         phone = own_jid.split("@")[0]
         probes.append(f"/api/{name}/contacts/check-exists?phone={phone}")
 
-        for url in probes:
+        for i, url in enumerate(probes):
+            if i > 0:
+                await asyncio.sleep(0.3)  # brief gap between probes
             try:
                 r = await self._client.get(url)
                 logger.debug(

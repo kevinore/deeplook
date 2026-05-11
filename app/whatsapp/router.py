@@ -1,11 +1,15 @@
 import logging
+import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+import asyncio
 
 from app.auth.dependencies import CurrentUser, get_current_user
 from app.billing.quotas import build_quota_status, get_billing_period
@@ -21,14 +25,24 @@ from app.repositories.whatsapp_connection_repo import WhatsAppConnectionReposito
 from app.services.whatsapp_sync_service import create_pending_job, run_waha_sync_job
 
 router = APIRouter(prefix="/whatsapp", tags=["WhatsApp"])
+public_router = APIRouter(prefix="/whatsapp", tags=["WhatsApp"])
 logger = logging.getLogger(__name__)
 
 
 # --- Schemas ---
 
+class CreateConnectionRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class RenameConnectionRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+
+
 class ConnectionResponse(BaseModel):
     id: UUID
     client_id: UUID
+    display_name: str | None = None
     status: str
     waha_session_name: str
     phone_number: str | None = None
@@ -36,10 +50,8 @@ class ConnectionResponse(BaseModel):
     last_sync_at: datetime | None = None
     next_scheduled_sync_at: datetime | None = None
     sync_frequency: str
-    # True = WhatsApp Business; False = personal account; None = not yet checked.
-    # A personal account CAN be connected but the analytics will still work —
-    # we surface this as a UI warning so the user knows to switch to WA Business.
     is_business_account: bool | None = None
+    share_token_expires_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -49,17 +61,26 @@ class SyncResponse(BaseModel):
     status: str = "accepted"
 
 
+class ShareTokenResponse(BaseModel):
+    url: str
+    expires_at: datetime
+
+
 # --- Helpers ---
 
-def _session_name(client_id: str) -> str:
+def _session_name(client_id: str, display_name: str, connection_id: str) -> str:
     """
-    Session name for WAHA.
-    WAHA Core (free): only "default" is allowed — all clients share one session.
-    WAHA PLUS: unique name per client, set WAHA_MULTI_SESSION=true to enable.
+    Human-readable WAHA session name: cl_{client_id[:8]}_{display_name_slug}_{conn[:6]}
+    e.g. 'cl_a1b2c3d4_juan_ventas_norte_f7e2c1'
+    The connection_id suffix guarantees uniqueness even when display names match.
+    WAHA Core (WAHA_MULTI_SESSION=false): always "default" — single session only.
     """
     if not settings.waha_multi_session:
         return "default"
-    return "client_" + client_id.replace("-", "")[:12]
+    client_short = client_id.replace("-", "")[:8]
+    slug = re.sub(r"[^a-z0-9]+", "_", (display_name or "cuenta").lower()).strip("_")[:18]
+    conn_suffix = connection_id.replace("-", "")[:6]
+    return f"cl_{client_short}_{slug}_{conn_suffix}"
 
 
 async def _get_client(user: CurrentUser, db: AsyncSession) -> Client:
@@ -83,17 +104,60 @@ async def _get_connection_or_404(connection_id: str, user: CurrentUser, db: Asyn
     conn = await WhatsAppConnectionRepository(db).get(connection_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found.")
-    # Verify ownership by checking that the connection's client belongs to the user
     client = await ClientRepository(db).get_by_owner(str(conn.client_id), user.user_id)
     if client is None:
         raise HTTPException(status_code=404, detail="Connection not found.")
     return conn
 
 
-# --- Endpoints ---
+# --- Auto-sync helper ---
+
+async def _auto_sync_on_connect(connection_id: str, waha_client: WahaClient) -> None:
+    """
+    Fired as a background task the moment a QR is scanned (first WORKING transition).
+    Creates and runs a sync job automatically, with quota guard and de-dupe check.
+    """
+    from app.database import async_session_factory
+
+    try:
+        async with async_session_factory() as session:
+            conn = await WhatsAppConnectionRepository(session).get(connection_id)
+            if conn is None:
+                return
+
+            # De-dupe: skip if there's already a live or completed job
+            if conn.last_sync_job_id:
+                existing = await AnalysisJobRepository(session).get(str(conn.last_sync_job_id))
+                if existing and existing.status in ("pending", "processing", "completed"):
+                    logger.info("Auto-sync skipped — job already exists [connection=%s]", connection_id)
+                    return
+
+            # Quota check
+            client = await ClientRepository(session).get(str(conn.client_id))
+            if not client:
+                return
+            period_start, _ = get_billing_period(client.plan_started_at)
+            jobs_used = await AnalysisJobRepository(session).count_by_connection_this_period(
+                connection_id, period_start
+            )
+            quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
+            if quota.reports_remaining == 0:
+                logger.info("Auto-sync skipped — quota exhausted [connection=%s]", connection_id)
+                return
+
+            job = await create_pending_job(connection_id, session)
+
+        asyncio.create_task(run_waha_sync_job(connection_id, str(job.id), waha_client, False, "auto_connect"))
+        logger.info("Auto-sync fired on connect [connection=%s job=%s]", connection_id, job.id)
+    except Exception:
+        logger.exception("Auto-sync on connect failed [connection=%s]", connection_id)
+
+
+# --- Authenticated endpoints ---
 
 @router.post("/connections", response_model=ConnectionResponse, status_code=201)
 async def create_connection(
+    body: CreateConnectionRequest,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
     waha: WahaClient = Depends(get_waha_client),
@@ -101,51 +165,52 @@ async def create_connection(
     client = await _require_active_plan(user, db)
     conn_repo = WhatsAppConnectionRepository(db)
 
-    existing = await conn_repo.get_by_client(str(client.id))
-    if existing:
-        # Only block if the connection is genuinely active or terminally blocked.
-        # FAILED (QR not scanned in time), STOPPED, SCAN_QR_CODE and STARTING are
-        # all recoverable — restart the WAHA session so the user gets a fresh QR
-        # instead of being stuck on a 409 with no escape hatch.
-        BLOCKED_STATES = {
-            WahaSessionStatus.WORKING.value,
-            WahaSessionStatus.CHECKING_ACCOUNT.value,
-            WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value,
-        }
-        if existing.status in BLOCKED_STATES:
-            raise HTTPException(status_code=409, detail="A WhatsApp connection already exists for this client.")
+    existing_list = await conn_repo.list_by_client(str(client.id))
 
-        try:
-            try:
-                session_info = await waha.restart_session(existing.waha_session_name)
-            except WahaSessionNotFoundError:
-                session_info = await waha.create_session(existing.waha_session_name, str(client.id))
-        except WahaError as e:
-            raise HTTPException(status_code=502, detail=f"Could not restart WAHA session: {e.message}")
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
+    # WAHA Core supports exactly one session ("default"). Block a second connection
+    # until the operator upgrades to WAHA PLUS and sets WAHA_MULTI_SESSION=true.
+    if not settings.waha_multi_session and existing_list:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MULTI_SESSION_REQUIRED",
+                "message": (
+                    "Tu servidor WAHA solo permite una cuenta simultánea. "
+                    "Actualiza a WAHA PLUS y activa WAHA_MULTI_SESSION=true para conectar múltiples cuentas."
+                ),
+            },
+        )
 
-        await conn_repo.update(existing.id, status=session_info.status.value)
-        await db.commit()
-        await db.refresh(existing)
-        return ConnectionResponse.model_validate(existing)
+    # Enforce per-plan connections limit
+    from app.billing.quotas import get_connections_limit
+    conn_limit = get_connections_limit(client.plan, getattr(client, "connections_limit", None))
+    if len(existing_list) >= conn_limit:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "CONNECTION_LIMIT_REACHED",
+                "message": f"Alcanzaste el límite de {conn_limit} conexión(es) de tu plan. Agrega más conexiones desde Configuración → Plan.",
+            },
+        )
 
-    name = _session_name(str(client.id))
+    connection_id = str(uuid.uuid4())
+    session_name = _session_name(str(client.id), body.display_name, connection_id)
+
+    _FREQ = {"enterprise": "weekly", "plus": "biweekly"}
+    sync_freq = _FREQ.get(client.plan, "monthly")
 
     try:
-        session_info = await waha.get_or_create_session(name, str(client.id))
+        session_info = await waha.get_or_create_session(session_name, str(client.id))
     except WahaError as e:
         raise HTTPException(status_code=502, detail=f"Could not create WAHA session: {e.message}")
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
 
-    # Derive sync_frequency from plan
-    _FREQ = {"enterprise": "weekly", "plus": "biweekly"}
-    sync_freq = _FREQ.get(client.plan, "monthly")
-
     conn = await conn_repo.create(
+        id=connection_id,
         client_id=str(client.id),
-        waha_session_name=name,
+        display_name=body.display_name,
+        waha_session_name=session_name,
         status=session_info.status.value,
         sync_frequency=sync_freq,
     )
@@ -160,13 +225,58 @@ async def list_connections(
     user: CurrentUser = Depends(get_current_user),
 ) -> list[ConnectionResponse]:
     client = await _get_client(user, db)
-    conn = await WhatsAppConnectionRepository(db).get_by_client(str(client.id))
-    return [ConnectionResponse.model_validate(conn)] if conn else []
+    conns = await WhatsAppConnectionRepository(db).list_by_client(str(client.id))
+    return [ConnectionResponse.model_validate(c) for c in conns]
+
+
+@router.patch("/connections/{connection_id}", response_model=ConnectionResponse)
+async def rename_connection(
+    connection_id: UUID,
+    body: RenameConnectionRequest,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ConnectionResponse:
+    conn = await _get_connection_or_404(str(connection_id), user, db)
+    conn_repo = WhatsAppConnectionRepository(db)
+    updated = await conn_repo.update(conn.id, display_name=body.display_name)
+    await db.commit()
+    return ConnectionResponse.model_validate(updated)
+
+
+@router.post("/connections/{connection_id}/share-token", response_model=ShareTokenResponse)
+async def create_share_token(
+    connection_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ShareTokenResponse:
+    conn = await _get_connection_or_404(str(connection_id), user, db)
+
+    if conn.status == WahaSessionStatus.WORKING.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ALREADY_CONNECTED", "message": "Esta cuenta ya está conectada. No es necesario compartir el QR."},
+        )
+    if conn.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Esta cuenta fue bloqueada por usar WhatsApp personal."},
+        )
+
+    conn_repo = WhatsAppConnectionRepository(db)
+    token = await conn_repo.generate_share_token(str(conn.id), ttl_hours=24)
+    await db.commit()
+    await db.refresh(conn)
+
+    base = settings.frontend_dev_url or settings.frontend_base_url
+    url = f"{base}/qr/{token}"
+    expires_at = conn.share_token_expires_at
+    return ShareTokenResponse(url=url, expires_at=expires_at)
 
 
 @router.get("/connections/{connection_id}/status")
 async def get_connection_status(
     connection_id: UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
     waha: WahaClient = Depends(get_waha_client),
@@ -174,9 +284,6 @@ async def get_connection_status(
     conn = await _get_connection_or_404(str(connection_id), user, db)
     conn_repo = WhatsAppConnectionRepository(db)
 
-    # PERSONAL_ACCOUNT_BLOCKED is a terminal state set by business logic — the WAHA session
-    # was intentionally destroyed. Polling WAHA here would return 404/STOPPED and incorrectly
-    # overwrite this status, causing the UI to show FailedCard instead of the blocked screen.
     if conn.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
         return {
             "connection_id": str(connection_id),
@@ -192,28 +299,26 @@ async def get_connection_status(
         updates: dict = {"status": new_status}
 
         if info.me:
-            own_jid = info.me.id  # e.g. "57300...@c.us"
+            own_jid = info.me.id
             if not conn.phone_number:
                 updates["phone_number"] = own_jid.split("@")[0]
                 updates["push_name"] = info.me.pushName or None
 
             if new_status == WahaSessionStatus.WORKING.value:
-                # Phase 1 — first detection of WORKING (transitioning from SCAN_QR_CODE etc.):
-                # return CHECKING_ACCOUNT immediately so the frontend shows a loading state
-                # within the next 2-second poll cycle instead of blocking for 12+ seconds.
                 if conn.status not in (
                     WahaSessionStatus.WORKING.value,
                     WahaSessionStatus.CHECKING_ACCOUNT.value,
                 ):
                     updates["status"] = WahaSessionStatus.CHECKING_ACCOUNT.value
-                    # User just (re)scanned the QR — clear the reconnect-email dedupe so
-                    # any future disconnection sends a fresh notice instead of being silent.
                     updates["last_reconnect_email_sent_at"] = None
-                    # Bump session-active so the keepalive scheduler doesn't immediately
-                    # re-poke a session that was just brought online.
                     updates["last_session_active_at"] = datetime.now(tz=timezone.utc)
                     await conn_repo.update(conn.id, **updates)
                     await db.commit()
+                    # Invalidate share token — connection is now established
+                    await conn_repo.invalidate_share_token(str(conn.id))
+                    await db.commit()
+                    # Fire auto-sync — QR was just scanned for the first time
+                    background_tasks.add_task(_auto_sync_on_connect, str(conn.id), waha)
                     return {
                         "connection_id": str(connection_id),
                         "status": WahaSessionStatus.CHECKING_ACCOUNT.value,
@@ -222,7 +327,6 @@ async def get_connection_status(
                         "is_business_account": None,
                     }
 
-                # Phase 2 — already in CHECKING_ACCOUNT: run the business-account check now.
                 if conn.status == WahaSessionStatus.CHECKING_ACCOUNT.value:
                     is_biz = await waha.check_is_business_account(conn.waha_session_name, own_jid)
                     updates["is_business_account"] = is_biz
@@ -254,7 +358,6 @@ async def get_connection_status(
                             "push_name": info.me.pushName or None,
                             "is_business_account": False,
                         }
-                # If conn.status == WORKING: business check already done — fall through.
 
         await conn_repo.update(conn.id, **updates)
         await db.commit()
@@ -268,8 +371,6 @@ async def get_connection_status(
             "is_business_account": is_biz_val,
         }
     except WahaSessionNotFoundError:
-        # Re-read from DB: a concurrent personal-account-block may have already set
-        # PERSONAL_ACCOUNT_BLOCKED and intentionally deleted the session. Don't overwrite it.
         fresh = await conn_repo.get(str(conn.id))
         if fresh and fresh.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
             return {
@@ -296,101 +397,7 @@ async def get_connection_qr(
     waha: WahaClient = Depends(get_waha_client),
 ) -> dict:
     conn = await _get_connection_or_404(str(connection_id), user, db)
-    conn_repo = WhatsAppConnectionRepository(db)
-
-    current_status = conn.status
-
-    # Terminal state — session was intentionally destroyed, no QR will ever come from it.
-    if current_status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
-        )
-
-    # If FAILED (e.g. user didn't scan in time and WAHA killed the session), restart
-    # transparently so the polling frontend gets a fresh QR without manual intervention.
-    if current_status == WahaSessionStatus.FAILED.value:
-        try:
-            await waha.restart_session(conn.waha_session_name)
-            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
-            await conn_repo.update(conn.id, status=current_status)
-            await db.commit()
-        except WahaSessionNotFoundError:
-            try:
-                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
-                current_status = session_info.status.value
-                await conn_repo.update(conn.id, status=current_status)
-                await db.commit()
-            except WahaError as e:
-                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e.message}")
-            except httpx.RequestError as e:
-                raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
-        except WahaError as e:
-            raise HTTPException(status_code=502, detail=f"Could not restart WAHA session: {e.message}")
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
-
-    # If stopped or starting, wake the session up first
-    if current_status in (WahaSessionStatus.STOPPED.value, WahaSessionStatus.STARTING.value):
-        try:
-            if current_status == WahaSessionStatus.STOPPED.value:
-                await waha.start_session(conn.waha_session_name)
-            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
-            await conn_repo.update(conn.id, status=current_status)
-            await db.commit()
-        except WahaSessionNotFoundError:
-            # Session was deleted (e.g. during personal-account-block cleanup). Re-check DB before
-            # recreating — if it was intentionally blocked, surface that instead.
-            fresh = await conn_repo.get(str(conn.id))
-            if fresh and fresh.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
-                )
-            try:
-                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
-                current_status = session_info.status.value
-                await conn_repo.update(conn.id, status=current_status)
-                await db.commit()
-            except WahaError as e:
-                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e.message}")
-            except httpx.RequestError as e:
-                raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
-        except WahaError as e:
-            raise HTTPException(status_code=502, detail=f"Could not start WAHA session: {e.message}")
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
-
-    if current_status == WahaSessionStatus.WORKING.value:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "ALREADY_CONNECTED", "message": "Session is already connected. No QR needed."},
-        )
-
-    if current_status != WahaSessionStatus.SCAN_QR_CODE.value:
-        # 409 (not 502) so the frontend triggers a status refresh rather than showing FailedCard.
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "SESSION_NOT_READY", "message": f"Session is in state '{current_status}'. QR not available yet."},
-        )
-
-    try:
-        qr_base64 = await waha.get_qr_base64(conn.waha_session_name)
-    except WahaError as e:
-        # WAHA rejected the QR fetch (session moved out of SCAN_QR_CODE between our check and the call).
-        # Sync the live status to DB so the next status poll reflects reality immediately.
-        try:
-            live = await waha.get_session(conn.waha_session_name)
-            await conn_repo.update(conn.id, status=live.status.value)
-            await db.commit()
-        except (WahaError, httpx.RequestError):
-            pass
-        raise HTTPException(status_code=502, detail=f"Could not fetch QR: {e.message}")
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
-
-    expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=20)
-    return {"qr_base64": qr_base64, "expires_at": expires_at.isoformat()}
+    return await _fetch_qr_for_connection(conn, db, waha)
 
 
 @router.post("/connections/{connection_id}/sync", response_model=SyncResponse, status_code=202)
@@ -404,10 +411,6 @@ async def manual_sync(
 ) -> SyncResponse:
     conn = await _get_connection_or_404(str(connection_id), user, db)
 
-    # Block only if there's an active sync running RIGHT NOW.
-    # If a previous sync got stuck pending/processing for >15 min, treat it as
-    # orphaned (worker crashed) and allow a new attempt — otherwise the user
-    # would be permanently locked out by a single bad sync.
     if conn.last_sync_job_id:
         last_job = await AnalysisJobRepository(db).get(str(conn.last_sync_job_id))
         if last_job and last_job.status in ("pending", "processing"):
@@ -420,17 +423,12 @@ async def manual_sync(
                     status_code=409,
                     detail={"code": "SYNC_IN_PROGRESS", "message": "Ya hay un sync en curso. Espera a que termine."},
                 )
-            # Orphaned: mark the stuck job as failed so it won't keep blocking
             await AnalysisJobRepository(db).update(
                 str(last_job.id), status="failed",
                 error_message="Sync orphaned (no completion within 15 min)",
             )
             await db.commit()
 
-    # Anti-spam guard: minimum 2 minutes between manual syncs to prevent rapid
-    # double-clicks and give the WAHA session time to be torn down between runs.
-    # The plan-based interval (biweekly/monthly) only applies to the AUTO scheduler;
-    # manual syncs are gated solely by the billing quota below.
     if conn.last_sync_at is not None:
         now_utc = datetime.now(tz=timezone.utc)
         last = conn.last_sync_at if conn.last_sync_at.tzinfo else conn.last_sync_at.replace(tzinfo=timezone.utc)
@@ -446,10 +444,12 @@ async def manual_sync(
                 },
             )
 
-    # Enforce billing-period report quota
+    # Per-connection quota check
     client = await _get_client(user, db)
     period_start, _ = get_billing_period(client.plan_started_at)
-    jobs_used = await AnalysisJobRepository(db).count_by_client_this_period(str(client.id), period_start)
+    jobs_used = await AnalysisJobRepository(db).count_by_connection_this_period(
+        str(connection_id), period_start
+    )
     quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
     if quota.reports_remaining == 0:
         renewal = quota.billing_period_end.strftime("%d/%m/%Y")
@@ -457,14 +457,12 @@ async def manual_sync(
             status_code=429,
             detail={
                 "code": "QUOTA_EXCEEDED",
-                "message": f"Has alcanzado el límite de {quota.reports_limit} reporte(s) para este período. Tu cuota se renueva el {renewal}.",
+                "message": f"Esta cuenta alcanzó el límite de {quota.reports_limit} reporte(s) para este período. La cuota se renueva el {renewal}.",
             },
         )
 
-    # Create the job shell immediately — endpoint returns 202 right away
     job = await create_pending_job(str(connection_id), db)
 
-    # All heavy work (WAHA fetch + store + AI analysis) runs in background
     background_tasks.add_task(
         run_waha_sync_job,
         str(connection_id),
@@ -486,11 +484,6 @@ async def delete_connection(
     conn = await _get_connection_or_404(str(connection_id), user, db)
     session_name = conn.waha_session_name
 
-    # NOWEB sessions are stopped between syncs to conserve resources.
-    # Calling logout on a stopped session sends no revocation signal to
-    # WhatsApp — the linked device would persist on the user's phone.
-    # We must start the session first so it reconnects with saved credentials,
-    # then logout while the connection is live.
     current_status: WahaSessionStatus | None = None
     try:
         info = await waha.get_session(session_name)
@@ -499,25 +492,175 @@ async def delete_connection(
             await waha.start_session(session_name)
             current_status = await waha.wait_for_working(session_name, timeout_seconds=30)
     except WahaSessionNotFoundError:
-        pass  # WAHA has no record — skip straight to DB cleanup
+        pass
     except (WahaError, httpx.RequestError) as e:
-        logger.warning("WAHA error while starting session for unlink (client=%s): %s", conn.client_id, e)
+        logger.warning("WAHA error while starting session for unlink (connection=%s): %s", connection_id, e)
 
-    # Send the logout signal only when we have a live WhatsApp connection.
-    # SCAN_QR_CODE means the QR was never scanned — no linked device to revoke.
     if current_status == WahaSessionStatus.WORKING:
         try:
             await waha.logout_session(session_name)
-            logger.info("WAHA logout sent for session=%s (client=%s)", session_name, conn.client_id)
         except (WahaError, httpx.RequestError) as e:
-            logger.warning("WAHA logout error during unlink (client=%s): %s", conn.client_id, e)
+            logger.warning("WAHA logout error during unlink (connection=%s): %s", connection_id, e)
 
     try:
         await waha.delete_session(session_name)
     except (WahaError, httpx.RequestError) as e:
-        logger.warning("WAHA delete session error during unlink (client=%s): %s", conn.client_id, e)
+        logger.warning("WAHA delete session error during unlink (connection=%s): %s", connection_id, e)
 
     await WhatsAppConnectionRepository(db).delete(conn.id)
     await db.commit()
 
 
+# --- Public endpoints (no auth — token-gated) ---
+
+async def _fetch_qr_for_connection(conn, db, waha: WahaClient) -> dict:
+    """Shared QR-fetch logic used by both the authed and public QR endpoints."""
+    from app.repositories.whatsapp_connection_repo import WhatsAppConnectionRepository
+    conn_repo = WhatsAppConnectionRepository(db)
+    current_status = conn.status
+
+    if current_status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
+        )
+
+    if current_status == WahaSessionStatus.FAILED.value:
+        try:
+            await waha.restart_session(conn.waha_session_name)
+            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
+            await conn_repo.update(conn.id, status=current_status)
+            await db.commit()
+        except WahaSessionNotFoundError:
+            try:
+                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
+                current_status = session_info.status.value
+                await conn_repo.update(conn.id, status=current_status)
+                await db.commit()
+            except (WahaError, httpx.RequestError) as e:
+                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e}")
+        except (WahaError, httpx.RequestError) as e:
+            raise HTTPException(status_code=502, detail=f"Could not restart WAHA session: {e}")
+
+    if current_status in (WahaSessionStatus.STOPPED.value, WahaSessionStatus.STARTING.value):
+        try:
+            if current_status == WahaSessionStatus.STOPPED.value:
+                await waha.start_session(conn.waha_session_name)
+            current_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=30)).value
+            await conn_repo.update(conn.id, status=current_status)
+            await db.commit()
+        except WahaSessionNotFoundError:
+            fresh = await conn_repo.get(str(conn.id))
+            if fresh and fresh.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Personal WhatsApp accounts are not allowed."},
+                )
+            try:
+                session_info = await waha.create_session(conn.waha_session_name, str(conn.client_id))
+                current_status = session_info.status.value
+                await conn_repo.update(conn.id, status=current_status)
+                await db.commit()
+            except (WahaError, httpx.RequestError) as e:
+                raise HTTPException(status_code=502, detail=f"Could not recreate WAHA session: {e}")
+        except (WahaError, httpx.RequestError) as e:
+            raise HTTPException(status_code=502, detail=f"Could not start WAHA session: {e}")
+
+    if current_status == WahaSessionStatus.WORKING.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ALREADY_CONNECTED", "message": "Session is already connected. No QR needed."},
+        )
+
+    if current_status != WahaSessionStatus.SCAN_QR_CODE.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SESSION_NOT_READY", "message": f"Session is in state '{current_status}'. QR not available yet."},
+        )
+
+    try:
+        qr_base64 = await waha.get_qr_base64(conn.waha_session_name)
+    except WahaError as e:
+        try:
+            live = await waha.get_session(conn.waha_session_name)
+            await conn_repo.update(conn.id, status=live.status.value)
+            await db.commit()
+        except (WahaError, httpx.RequestError):
+            pass
+        raise HTTPException(status_code=502, detail=f"Could not fetch QR: {e.message}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo conectar con el servicio WAHA: {e}")
+
+    expires_at = datetime.now(tz=timezone.utc) + timedelta(seconds=20)
+    return {"qr_base64": qr_base64, "expires_at": expires_at.isoformat()}
+
+
+@public_router.get("/share/{token}")
+async def get_share_context(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Public: return connection context (no sensitive data) for the QR share page."""
+    conn = await WhatsAppConnectionRepository(db).get_by_share_token(token)
+    if conn is None:
+        raise HTTPException(status_code=404, detail={"code": "TOKEN_EXPIRED", "message": "Este enlace ha vencido o no existe."})
+
+    client = await ClientRepository(db).get(str(conn.client_id))
+    business_name = client.business_name if client else ""
+
+    return {
+        "connection_id": str(conn.id),
+        "display_name": conn.display_name or "WhatsApp",
+        "business_name": business_name,
+        "status": conn.status,
+        "expires_at": conn.share_token_expires_at.isoformat() if conn.share_token_expires_at else None,
+    }
+
+
+@public_router.get("/share/{token}/qr")
+async def get_share_qr(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+    waha: WahaClient = Depends(get_waha_client),
+) -> dict:
+    """Public: return QR for this share token. Proxies WAHA."""
+    conn = await WhatsAppConnectionRepository(db).get_by_share_token(token)
+    if conn is None:
+        raise HTTPException(status_code=404, detail={"code": "TOKEN_EXPIRED", "message": "Este enlace ha vencido o no existe."})
+
+    return await _fetch_qr_for_connection(conn, db, waha)
+
+
+@public_router.get("/share/{token}/status")
+async def get_share_status(
+    token: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    waha: WahaClient = Depends(get_waha_client),
+) -> dict:
+    """Public: poll connection status for the QR share page."""
+    conn = await WhatsAppConnectionRepository(db).get_by_share_token(token)
+    if conn is None:
+        raise HTTPException(status_code=404, detail={"code": "TOKEN_EXPIRED", "message": "Este enlace ha vencido o no existe."})
+
+    try:
+        info = await waha.get_session(conn.waha_session_name)
+        new_status = info.status.value
+        conn_repo = WhatsAppConnectionRepository(db)
+
+        updates: dict = {"status": new_status}
+        if info.me and not conn.phone_number:
+            updates["phone_number"] = info.me.id.split("@")[0]
+
+        await conn_repo.update(conn.id, **updates)
+
+        if new_status == WahaSessionStatus.WORKING.value:
+            await conn_repo.invalidate_share_token(str(conn.id))
+            background_tasks.add_task(_auto_sync_on_connect, str(conn.id), waha)
+
+        await db.commit()
+        return {"status": new_status}
+    except WahaSessionNotFoundError:
+        return {"status": "FAILED"}
+    except (WahaError, httpx.RequestError):
+        return {"status": conn.status}

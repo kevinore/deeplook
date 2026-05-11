@@ -165,7 +165,7 @@ from app.ingestion.router import router as ingestion_router  # noqa: E402
 from app.analytics.router import router as analytics_router  # noqa: E402
 from app.delivery.router import router as delivery_router  # noqa: E402
 from app.clients.router import router as clients_router  # noqa: E402
-from app.whatsapp.router import router as whatsapp_router  # noqa: E402
+from app.whatsapp.router import router as whatsapp_router, public_router as whatsapp_public_router  # noqa: E402
 from app.webhooks.router import router as webhooks_router  # noqa: E402
 from app.notifications.router import router as notifications_router  # noqa: E402
 from fastapi import Depends  # noqa: E402
@@ -176,6 +176,7 @@ app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(get
 app.include_router(delivery_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 app.include_router(clients_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 app.include_router(whatsapp_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(whatsapp_public_router, prefix="/api/v1")  # No auth — token-gated
 app.include_router(notifications_router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 # Wompi webhook — public, signature-verified internally
 app.include_router(webhooks_router, prefix="/api/v1")

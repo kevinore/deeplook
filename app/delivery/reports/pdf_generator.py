@@ -5,7 +5,7 @@ import base64
 import logging
 import statistics
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -435,6 +435,7 @@ def generate_pdf_report(
     average_transaction_value: float | None = None,
     business_type: str | None = None,
     is_subscribed: bool = False,
+    account_name: str | None = None,
     previous_results: list[ConversationAnalysisResult] | None = None,
     previous_job_created_at: datetime | None = None,
 ) -> bytes:
@@ -624,14 +625,14 @@ def generate_pdf_report(
     if total_conv < 10:
         sample_warning = (
             f"Muestra muy pequeña: este reporte analiza solo {total_conv} "
-            f"conversaci{'ón' if total_conv == 1 else 'ones'}. Para métricas más "
-            f"confiables, recomendamos analizar al menos 20 conversaciones."
+            f"contacto{'s' if total_conv != 1 else ''}. Para métricas más "
+            f"confiables, recomendamos analizar al menos 20 contactos."
         )
         sample_warning_level = "critical"
     elif total_conv < 20:
         sample_warning = (
-            f"Muestra limitada: este reporte analiza {total_conv} conversaciones. "
-            f"Se recomiendan 20+ conversaciones para tendencias más confiables."
+            f"Muestra limitada: este reporte analiza {total_conv} contactos. "
+            f"Se recomiendan 20+ contactos para tendencias más confiables."
         )
         sample_warning_level = "warning"
     else:
@@ -919,15 +920,32 @@ def generate_pdf_report(
     )
 
     # --- Report metadata ---
-    report_version = "2.1"
-    period_start = now.strftime("%d %b %Y")
-    period_end = now.strftime("%d %b %Y")
+    report_version = "2.2"
+
+    # Derive actual date range from the earliest conversation start in results.
+    # `now` is datetime.utcnow() (naive UTC) so strip tzinfo from earliest too.
+    all_starts = [r.started_at for r in results if r.started_at]
+    if all_starts:
+        earliest_dt = min(all_starts)
+        earliest_naive = earliest_dt.replace(tzinfo=None)  # both naive → subtraction works
+        period_start = earliest_naive.strftime("%d %b %Y")
+        period_end = now.strftime("%d %b %Y")
+        lookback_days = max(1, (now - earliest_naive).days)
+    else:
+        period_start = now.strftime("%d %b %Y")
+        period_end = now.strftime("%d %b %Y")
+        lookback_days = None
+
+    analysis_source = "waha" if has_waha_metrics else "txt_upload"
 
     context = {
         "business_name": business_name,
+        "account_name": account_name,
         "generated_at": now.strftime("%d %b %Y, %H:%M UTC"),
-        "date_range_start": now.strftime("%d %b %Y"),
-        "date_range_end": now.strftime("%d %b %Y"),
+        "date_range_start": period_start,
+        "date_range_end": period_end,
+        "lookback_days": lookback_days,
+        "analysis_source": analysis_source,
         "health_score": health,
         "health_label": _health_label(health),
         "health_explanation": health_explanation,

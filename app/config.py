@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     wompi_price_basic_cents: int = 160000     # stagtest: ~$1,600 COP; change to 16000000 in prod
     wompi_price_plus_cents: int = 250000     # stagtest: ~$2,500 COP; change to 25000000 in prod
     wompi_price_enterprise_cents: int = 400000  # stagtest: ~$4,000 COP; change to 40000000 in prod
+    # Extra connection add-on prices (same scale as base prices above)
+    wompi_extra_basic_cents: int = 120000
+    wompi_extra_plus_cents: int = 180000
+    wompi_extra_enterprise_cents: int = 150000
     # Base URL for Wompi redirect after payment (your frontend)
     wompi_redirect_base_url: str = "http://localhost:5173"
 
@@ -83,6 +87,8 @@ class Settings(BaseSettings):
     email_enabled: bool = True
     # Public URL where the SPA is hosted (used in CTA links inside emails)
     frontend_base_url: str = "http://localhost:5173"
+    # Dev server URL — added to CORS automatically; change when Vite picks a different port
+    frontend_dev_url: str = ""
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -104,7 +110,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        # Always include frontend_dev_url so changing the Vite port only needs one env var
+        if self.frontend_dev_url and self.frontend_dev_url not in origins:
+            origins.append(self.frontend_dev_url)
+        return origins
 
 
 settings = Settings()

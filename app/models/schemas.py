@@ -53,6 +53,8 @@ class JobStatusResponse(BaseModel):
     total_cost_usd: float = 0.0
     ai_provider: str | None = None
     ai_model: str | None = None
+    connection_id: str | None = None
+    connection_name: str | None = None
 
 
 # --- Analysis Results ---

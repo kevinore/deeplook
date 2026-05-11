@@ -32,11 +32,14 @@ _LOOKBACK_BY_PLAN: dict[str, int] = {
     "free": 30,
 }
 
+# Max chats (contacts) fetched per sync. Slightly above conversations_per_report
+# to account for chats filtered out (too few messages, fetch errors, etc.).
+# One chat = one conversation analysed, so this is the main quota lever.
 _MAX_CHATS_BY_PLAN: dict[str, int] = {
-    "basic": 100,
-    "plus": 300,
-    "enterprise": 1000,
-    "free": 100,
+    "basic": 130,    # plan quota: 100 conversations
+    "plus": 380,     # plan quota: 300 conversations
+    "enterprise": 1200,  # plan quota: 1000 conversations
+    "free": 130,
 }
 
 _SYNC_PERIOD_DAYS: dict[str, int] = {
@@ -60,6 +63,7 @@ async def create_pending_job(connection_id: str, session: AsyncSession) -> Analy
         status="pending",
         job_type="full_analysis",
         total_conversations=0,
+        connection_id=connection_id,
     )
     await session.flush()
 
@@ -146,7 +150,8 @@ async def run_waha_sync_job(
 
             max_chats = _MAX_CHATS_BY_PLAN.get(plan, 100)
 
-            # --- 4. Fetch conversations (the slow part — safely in background) ---
+            # --- 4. Fetch conversations (the slow part — safely in background)
+            #        One chat = one conversation. max_chats controls the quota. ---
             try:
                 batch = await build_batch_from_waha(
                     waha_client=waha_client,
@@ -163,6 +168,17 @@ async def run_waha_sync_job(
                 except Exception:
                     logger.warning("Could not stop WAHA session '%s'", name, exc_info=True)
                     conn_status = "WORKING"
+
+            # --- 4b. Hard-cap to plan's conversations_per_report (safety net for
+            #         the ~30% buffer in max_chats not being fully absorbed by filters) ---
+            from app.billing.quotas import PLAN_LIMITS
+            conv_limit = PLAN_LIMITS.get(plan, {}).get("conversations_per_report", 100)
+            if conv_limit > 0 and len(batch.conversations) > conv_limit:
+                logger.info(
+                    "WAHA sync [job=%s]: capping %d chats → %d (plan=%s quota)",
+                    job_id, len(batch.conversations), conv_limit, plan,
+                )
+                batch = batch.model_copy(update={"conversations": batch.conversations[:conv_limit]})
 
             if not batch.conversations:
                 logger.info("WAHA sync [job=%s]: no new conversations since %s", job_id, since.date())

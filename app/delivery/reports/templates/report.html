@@ -511,6 +511,13 @@
     <div class="cover-eyebrow">Informe de Análisis de Conversaciones</div>
     <div style="font-size:11px;opacity:0.75;margin:8px 0 2px;letter-spacing:0.3px;">Informe para:</div>
     <div class="cover-business">{{ business_name }}</div>
+    {% if account_name %}
+    <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.13);border:1.5px solid rgba(255,255,255,0.22);border-radius:8px;padding:8px 16px;margin:14px 0 0;">
+      <span style="font-size:9px;font-weight:800;color:rgba(255,255,255,0.55);letter-spacing:0.1em;text-transform:uppercase;">Cuenta WhatsApp</span>
+      <span style="font-size:12px;color:rgba(255,255,255,0.35);">|</span>
+      <span style="font-size:15px;font-weight:700;color:#ffffff;letter-spacing:0.01em;">{{ account_name }}</span>
+    </div>
+    {% endif %}
 
     <div class="health-block">
       <div class="health-number">{{ health_score|round|int }}</div>
@@ -522,8 +529,9 @@
 
     <div class="cover-meta">
       Generado: {{ generated_at }} &nbsp;·&nbsp;
-      {{ total_conversations }} conversaci{{ 'ón' if total_conversations == 1 else 'ones' }} &nbsp;·&nbsp;
+      {{ total_conversations }} contacto{{ 's' if total_conversations != 1 else '' }} analizad{{ 'os' if total_conversations != 1 else 'o' }} &nbsp;·&nbsp;
       {{ total_messages }} mensajes
+      {% if lookback_days %}&nbsp;·&nbsp; últimos {{ lookback_days }} días{% endif %}
     </div>
 
     {% if one_line_summary %}
@@ -642,7 +650,7 @@
           <td style="text-align:right;padding:3px 6px;">{{ delta_cell(previous_comparison.unanswered_delta) }}</td></tr>
     </table>
     <p style="font-size:9.5px;color:#666;margin:6px 0 0;line-height:1.5;">
-      Comparación con tu reporte anterior — {{ previous_comparison.previous_total_conversations }} conversaciones evaluadas en ese período.
+      Comparación con tu reporte anterior — {{ previous_comparison.previous_total_conversations }} contacto{{ 's' if previous_comparison.previous_total_conversations != 1 else '' }} analizado{{ 's' if previous_comparison.previous_total_conversations != 1 else '' }} en ese período.
     </p>
   </div>
   {% endif %}
@@ -1078,12 +1086,13 @@
     <strong style="font-size:11px;color:#2D2D2B;">Datos del Análisis</strong>
     <table style="margin-top:6px;">
       <tr><th>Detalle</th><th>Valor</th></tr>
-      <tr><td>Archivos procesados</td><td>{{ files_processed }}</td></tr>
-      <tr><td>Conversaciones analizadas</td><td>{{ total_conversations }}</td></tr>
+      {% if analysis_source != 'txt_upload' %}<tr><td>Archivos procesados</td><td>{{ files_processed }}</td></tr>{% endif %}
+      <tr><td>Contactos analizados</td><td>{{ total_conversations }}</td></tr>
       <tr><td>Mensajes totales</td><td>{{ total_messages }}</td></tr>
       <tr><td>Mensajes entrantes (clientes)</td><td>{{ total_inbound }}</td></tr>
       <tr><td>Mensajes salientes (negocio)</td><td>{{ total_outbound }}</td></tr>
-      <tr><td>Período analizado</td><td>{{ period_start }}{% if period_end != period_start %} — {{ period_end }}{% endif %}</td></tr>
+      <tr><td>Período analizado</td><td>{{ period_start }}{% if period_end and period_end != period_start %} — {{ period_end }}{% endif %}{% if lookback_days %} ({{ lookback_days }} días){% endif %}</td></tr>
+      <tr><td>Fuente</td><td>{{ 'WhatsApp Business (WAHA)' if analysis_source == 'waha' else 'Exportación .txt' }}</td></tr>
       <tr><td>Fecha de generación</td><td>{{ generated_at }}</td></tr>
       <tr><td>Confianza del análisis</td><td>{{ confidence_level }}</td></tr>
       <tr><td>Versión del reporte</td><td>{{ report_version }}</td></tr>

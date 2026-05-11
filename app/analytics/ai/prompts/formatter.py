@@ -4,7 +4,7 @@ Format a NormalizedConversation into AI-readable text.
 from app.models.enums import MessageDirection, MessageType
 from app.models.normalized import NormalizedConversation, NormalizedMessage
 
-_MAX_MESSAGES = 100
+_MAX_MESSAGES = 250  # 30-day WAHA chats can have 200+ messages; 100 was too low
 
 _MEDIA_LABELS = {
     MessageType.IMAGE: "[Image]",
