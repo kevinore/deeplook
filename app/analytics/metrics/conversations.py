@@ -25,6 +25,7 @@ def conversation_stats(conv: NormalizedConversation) -> dict:
         "by_type": volume.by_type(msgs),
         "first_response_time_seconds": response_time.first_response_time(msgs),
         "avg_response_time_seconds": response_time.average(msgs),
+        "avg_response_time_bh_seconds": response_time.average_business_hours(msgs),
         "median_response_time_seconds": response_time.median(msgs),
         "p95_response_time_seconds": response_time.percentile_95(msgs),
         "max_response_time_seconds": response_time.max_response_time(msgs),

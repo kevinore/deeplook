@@ -25,6 +25,70 @@ _RENEWAL_STAGES = [
 ]
 
 
+async def check_missed_initial_syncs() -> None:
+    """
+    Safety net: find connections that connected successfully but whose initial
+    auto-sync never ran (or crashed silently).
+
+    Triggers a sync for connections where ALL of:
+      • status is WORKING or STOPPED (session is authenticated)
+      • last_sync_at is NULL (never produced a report)
+      • created_at was more than 10 minutes ago (enough time for auto-sync to have run)
+      • no active pending/processing job on last_sync_job_id
+      • plan is not free (free accounts can't sync)
+
+    This runs every 5 minutes and acts as the final guarantee that a connected
+    account always gets its first sync regardless of what went wrong with the
+    primary auto-sync path.
+    """
+    from app.database import async_session_factory
+    from app.integrations.waha.client import get_waha_client
+    from app.models.database import WhatsAppConnection, Client, AnalysisJob
+    from sqlalchemy import select, or_
+    from datetime import timedelta
+
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(minutes=10)
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(WhatsAppConnection)
+            .join(Client, WhatsAppConnection.client_id == Client.id)
+            .where(
+                WhatsAppConnection.last_sync_at.is_(None),
+                WhatsAppConnection.created_at <= cutoff,
+                or_(
+                    WhatsAppConnection.status == "WORKING",
+                    WhatsAppConnection.status == "STOPPED",
+                ),
+                Client.plan != "free",
+                Client.is_active.is_(True),
+            )
+        )
+        candidates = result.scalars().all()
+
+    if not candidates:
+        return
+
+    from app.repositories.analysis_repo import AnalysisJobRepository
+    from app.database import async_session_factory as asf
+
+    waha_client = get_waha_client()
+    for conn in candidates:
+        # Check if there's already an active job before spawning a new sync
+        async with asf() as session:
+            if conn.last_sync_job_id:
+                job = await AnalysisJobRepository(session).get(str(conn.last_sync_job_id))
+                if job and job.status in ("pending", "processing"):
+                    continue  # already running, skip
+
+        logger.warning(
+            "Missed initial sync detected — firing fallback sync [connection=%s created=%s]",
+            conn.id, conn.created_at,
+        )
+        asyncio.create_task(_safe_sync(str(conn.id), waha_client))
+
+
 async def check_pending_syncs() -> None:
     """Triggered every N minutes. Spawns async tasks for each due sync."""
     from app.database import async_session_factory
@@ -164,6 +228,15 @@ def start_scheduler() -> None:
         "interval",
         minutes=settings.whatsapp_scheduler_interval_minutes,
         id="check_pending_syncs",
+        replace_existing=True,
+    )
+    # Safety net: every 5 min, catch any connections that connected but never got
+    # their initial sync (crashed auto-sync, de-dupe bug, event loop hiccup, etc.)
+    _scheduler.add_job(
+        check_missed_initial_syncs,
+        "interval",
+        minutes=5,
+        id="check_missed_initial_syncs",
         replace_existing=True,
     )
     # Daily renewal-reminder check at 09:00 UTC (≈ 04:00 Colombia).

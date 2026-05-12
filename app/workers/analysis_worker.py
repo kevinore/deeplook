@@ -140,6 +140,7 @@ async def run_analysis_job(
                             avg_response_time_seconds=result.avg_response_time_seconds,
                             median_response_time_seconds=result.median_response_time_seconds,
                             p95_response_time_seconds=result.p95_response_time_seconds,
+                            avg_response_time_bh_seconds=result.avg_response_time_bh_seconds,
                             unanswered_count=result.unanswered_count,
                             trailing_inbound_messages=result.trailing_inbound_messages,
                             total_messages=result.total_messages,
@@ -291,6 +292,7 @@ async def _send_report_email(job_id: str, client_id: str) -> None:
                     wa_unread_count=getattr(a, "wa_unread_count", None),
                     wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
                     wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
+                    avg_response_time_bh_seconds=getattr(a, "avg_response_time_bh_seconds", None),
                 )
                 for (a, conv, contact) in rows
             ]
@@ -298,13 +300,14 @@ async def _send_report_email(job_id: str, client_id: str) -> None:
                 logger.info("Skipping report email — no analyses (job=%s)", job_id)
                 return
 
-            frt_values = [r.first_response_time_seconds for r in results if r.first_response_time_seconds is not None]
-            rt_values  = [r.avg_response_time_seconds   for r in results if r.avg_response_time_seconds   is not None]
-            avg_first_rt = statistics.mean(frt_values) if frt_values else None
-            avg_rt       = statistics.mean(rt_values)  if rt_values  else None
+            frt_values    = [r.first_response_time_seconds for r in results if r.first_response_time_seconds is not None]
+            rt_values     = [r.avg_response_time_seconds   for r in results if r.avg_response_time_seconds   is not None]
+            avg_first_rt  = statistics.mean(frt_values) if frt_values else None
+            median_frt    = statistics.median(frt_values) if frt_values else None
+            avg_rt        = statistics.mean(rt_values) if rt_values else None
             health_score = calculate_health_score(
                 results,
-                first_response_time_seconds=avg_first_rt,
+                first_response_time_seconds=median_frt,
                 avg_response_time_seconds=avg_rt,
             )
 

@@ -3,10 +3,85 @@ Response time calculations — pure math, no AI, no external calls.
 """
 import statistics
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models.enums import MessageDirection
 from app.models.normalized import NormalizedMessage
+
+# Colombia Time = UTC-5. Business hours: Mon–Fri 08:00–18:00.
+_COLOMBIA_UTC_OFFSET_H = -5
+_BH_START_H = 8
+_BH_END_H = 18
+
+
+def _business_hours_elapsed_seconds(start: datetime, end: datetime) -> float:
+    """
+    Elapsed seconds between start and end counting only Mon–Fri 08:00–18:00
+    Colombia time (UTC-5).  Both datetimes are assumed to be naive UTC.
+    """
+    if end <= start:
+        return 0.0
+    offset = timedelta(hours=_COLOMBIA_UTC_OFFSET_H)
+    cur = start + offset
+    target = end + offset
+    # Strip tz info if present (defensive)
+    if getattr(cur, "tzinfo", None) is not None:
+        cur = cur.replace(tzinfo=None)
+    if getattr(target, "tzinfo", None) is not None:
+        target = target.replace(tzinfo=None)
+
+    total = 0.0
+    while cur < target:
+        wd = cur.weekday()   # 0=Mon … 6=Sun
+        h = cur.hour
+        if wd >= 5:
+            # Weekend → next Monday 08:00
+            days_ahead = (7 - wd) % 7 or 7
+            next_start = (cur + timedelta(days=days_ahead)).replace(
+                hour=_BH_START_H, minute=0, second=0, microsecond=0
+            )
+            cur = min(next_start, target)
+        elif h >= _BH_END_H:
+            # After hours today → next weekday 08:00
+            next_day = (cur + timedelta(days=1)).replace(
+                hour=_BH_START_H, minute=0, second=0, microsecond=0
+            )
+            while next_day.weekday() >= 5:
+                next_day += timedelta(days=1)
+            cur = min(next_day, target)
+        elif h < _BH_START_H:
+            # Before hours today
+            cur = min(cur.replace(hour=_BH_START_H, minute=0, second=0, microsecond=0), target)
+        else:
+            # Inside business hours → accumulate until block end or target
+            block_end = cur.replace(hour=_BH_END_H, minute=0, second=0, microsecond=0)
+            chunk_end = min(block_end, target)
+            total += (chunk_end - cur).total_seconds()
+            cur = chunk_end
+    return total
+
+
+def _collect_response_times_bh(messages: list[NormalizedMessage]) -> list[float]:
+    """Same as _collect_response_times but elapsed time counts only business hours."""
+    sorted_msgs = sorted(messages, key=lambda m: m.timestamp)
+    response_times: list[float] = []
+    waiting_since: datetime | None = None
+
+    for msg in sorted_msgs:
+        if msg.direction == MessageDirection.INBOUND and waiting_since is None:
+            waiting_since = msg.timestamp
+        elif msg.direction == MessageDirection.OUTBOUND and waiting_since is not None:
+            bh_delta = _business_hours_elapsed_seconds(waiting_since, msg.timestamp)
+            response_times.append(max(0.0, bh_delta))
+            waiting_since = None
+
+    return response_times
+
+
+def average_business_hours(messages: list[NormalizedMessage]) -> float | None:
+    """Average response time counting only Mon–Fri 08:00–18:00 Colombia time."""
+    times = _collect_response_times_bh(messages)
+    return statistics.mean(times) if times else None
 
 
 def _collect_response_times(messages: list[NormalizedMessage]) -> list[float]:
@@ -75,16 +150,53 @@ def max_response_time(messages: list[NormalizedMessage]) -> float | None:
     return max(times) if times else None
 
 
+# Words/emojis commonly used as conversation-closing acknowledgments.
+# A trailing INBOUND consisting only of these tokens does NOT require a
+# business reply — the business already responded and the customer just
+# closed politely.  Kept intentionally small to avoid false negatives.
+_CLOSING_TOKENS: frozenset[str] = frozenset({
+    "ok", "okay", "gracias", "muchas", "mil", "bien", "listo",
+    "dale", "perfecto", "claro", "entendido", "excelente", "genial",
+    "bueno", "de", "acuerdo", "chévere", "chevere", "super", "súper",
+    "👍", "✅", "🙏", "😊", "🤝", "👌", "💪", "✔", "☑",
+})
+_MAX_CLOSING_WORDS = 5  # trailing messages longer than this are always real
+
+
+def _is_trailing_acknowledgment(msg: NormalizedMessage) -> bool:
+    """
+    True when the message looks like a closing acknowledgment that doesn't
+    need a reply ("gracias", "ok dale", "👍", etc.).
+
+    Only triggers on very short messages whose every word is a known
+    closing token.  Longer messages or messages with substantive content
+    are never filtered — we'd rather err on the side of counting too many
+    unanswered conversations than miss real unanswered ones.
+    """
+    text = (getattr(msg, "text", None) or "").strip().lower()
+    if not text:
+        return False
+    words = text.split()
+    if len(words) > _MAX_CLOSING_WORDS:
+        return False
+    cleaned = {w.rstrip("!.?¡¿,;:") for w in words}
+    return bool(cleaned) and cleaned.issubset(_CLOSING_TOKENS)
+
+
 def is_unanswered(messages: list[NormalizedMessage]) -> bool:
     """
-    True iff the conversation ended with an INBOUND message (customer wrote
-    last and the business never replied).
+    True iff the conversation ended with a substantive INBOUND message
+    (customer wrote last and the business never replied).
 
-    System messages are ignored — we look at the last business/customer message.
+    Trailing acknowledgment messages ("gracias", "ok", "👍", etc.) are
+    skipped — the business already responded and the customer just closed
+    politely.  System messages are also ignored.
     """
     sorted_msgs = sorted(messages, key=lambda m: m.timestamp)
     for msg in reversed(sorted_msgs):
         if msg.direction == MessageDirection.INBOUND:
+            if _is_trailing_acknowledgment(msg):
+                continue  # closing courtesy — keep scanning backwards
             return True
         if msg.direction == MessageDirection.OUTBOUND:
             return False
@@ -186,7 +298,13 @@ def first_response_time(messages: list[NormalizedMessage]) -> float | None:
 
 
 def by_hour(messages: list[NormalizedMessage]) -> dict[int, float]:
-    """Average response time grouped by hour of day (0-23)."""
+    """
+    Median response time grouped by hour of day (0-23) in Colombia time (UTC-5).
+
+    Uses median (not mean) so a single outlier exchange doesn't dominate a bucket.
+    Buckets with fewer than 2 samples are excluded — one data point is not
+    representative of an "average" for that hour.
+    """
     sorted_msgs = sorted(messages, key=lambda m: m.timestamp)
     hour_times: dict[int, list[float]] = defaultdict(list)
     waiting_since: datetime | None = None
@@ -195,7 +313,8 @@ def by_hour(messages: list[NormalizedMessage]) -> dict[int, float]:
     for msg in sorted_msgs:
         if msg.direction == MessageDirection.INBOUND and waiting_since is None:
             waiting_since = msg.timestamp
-            hour_of_wait = msg.timestamp.hour
+            # Convert UTC → Colombia time (UTC-5)
+            hour_of_wait = (msg.timestamp + timedelta(hours=_COLOMBIA_UTC_OFFSET_H)).hour
         elif msg.direction == MessageDirection.OUTBOUND and waiting_since is not None:
             delta = (msg.timestamp - waiting_since).total_seconds()
             if hour_of_wait is not None:
@@ -203,4 +322,8 @@ def by_hour(messages: list[NormalizedMessage]) -> dict[int, float]:
             waiting_since = None
             hour_of_wait = None
 
-    return {h: statistics.mean(times) for h, times in hour_times.items()}
+    return {
+        h: statistics.median(times)
+        for h, times in hour_times.items()
+        if len(times) >= 2
+    }

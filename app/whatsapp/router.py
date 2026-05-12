@@ -39,6 +39,16 @@ class RenameConnectionRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=100)
 
 
+class RequestCodeBody(BaseModel):
+    phone_number: str = Field(
+        description="Phone number with country code, digits only. E.g. '573178881502'",
+        min_length=7,
+        max_length=20,
+    )
+
+
+
+
 class ConnectionResponse(BaseModel):
     id: UUID
     client_id: UUID
@@ -52,6 +62,9 @@ class ConnectionResponse(BaseModel):
     sync_frequency: str
     is_business_account: bool | None = None
     share_token_expires_at: datetime | None = None
+    # Populated at query-time (not a DB column).
+    active_job_status: str | None = None    # 'pending' | 'processing' | None
+    reports_remaining: int | None = None    # remaining quota slots for this connection this period
 
     model_config = {"from_attributes": True}
 
@@ -146,16 +159,20 @@ async def _wait_for_waha_store(session_name: str, waha_client: WahaClient, max_w
 async def _auto_sync_on_connect(connection_id: str, waha_client: WahaClient) -> None:
     """
     Fired as a background task the moment a QR is scanned (first WORKING transition).
-    Creates and runs a sync job automatically, with quota guard and de-dupe check.
 
-    For first-ever syncs, waits for WAHA's store to be populated before fetching
-    (see _wait_for_waha_store). Incremental syncs proceed immediately.
+    Job creation order is intentional:
+      1. De-dupe + quota check
+      2. CREATE JOB immediately → active_job_status = "pending" visible to frontend
+         within the next 3-second connections refresh, so the button changes to
+         "Sincronizando..." right away instead of staying on "Generar reporte"
+         for several minutes.
+      3. Wait for WAHA store (up to 5 min on first sync)
+      4. Run the actual sync worker with the already-created job_id
     """
     from app.config import settings
     from app.database import async_session_factory
 
     try:
-        # Check if this is a first-ever sync for this connection
         async with async_session_factory() as session:
             conn = await WhatsAppConnectionRepository(session).get(connection_id)
             if conn is None:
@@ -163,30 +180,27 @@ async def _auto_sync_on_connect(connection_id: str, waha_client: WahaClient) -> 
             is_first_sync = conn.last_sync_at is None
             session_name = conn.waha_session_name
 
-        # For first-ever syncs: wait until WAHA's store is populated.
-        # WAHA enters AwaitingInitialSync after pairing — WhatsApp pushes history
-        # asynchronously and the duration depends on account size. We poll until
-        # DM chats appear rather than using a fixed delay.
-        if is_first_sync:
-            max_wait = getattr(settings, "waha_initial_sync_delay_seconds", 300)
-            logger.info(
-                "Auto-sync on first connect: polling for WAHA store readiness "
-                "(max %ds) [connection=%s]",
-                max_wait, connection_id,
-            )
-            await _wait_for_waha_store(session_name, waha_client, max_wait=max_wait)
-
-        async with async_session_factory() as session:
-            conn = await WhatsAppConnectionRepository(session).get(connection_id)
-            if conn is None:
-                return
-
-            # De-dupe: skip if there's already a live or completed job
+            # De-dupe: skip only for actively running jobs OR very recently completed
+            # ones (< 5 min).  "completed" jobs older than 5 min MUST allow a new
+            # sync — otherwise re-connecting after a previous sync never triggers
+            # the initial auto-sync.  "failed" jobs always retry.
             if conn.last_sync_job_id:
                 existing = await AnalysisJobRepository(session).get(str(conn.last_sync_job_id))
-                if existing and existing.status in ("pending", "processing", "completed"):
-                    logger.info("Auto-sync skipped — job already exists [connection=%s]", connection_id)
-                    return
+                if existing:
+                    if existing.status in ("pending", "processing"):
+                        logger.info(
+                            "Auto-sync skipped — job already active [connection=%s status=%s]",
+                            connection_id, existing.status,
+                        )
+                        return
+                    if existing.status == "completed" and existing.completed_at:
+                        age_s = (datetime.now(tz=timezone.utc) - existing.completed_at).total_seconds()
+                        if age_s < 300:  # 5 minutes
+                            logger.info(
+                                "Auto-sync skipped — job completed recently (%.0fs ago) [connection=%s]",
+                                age_s, connection_id,
+                            )
+                            return
 
             # Quota check
             client = await ClientRepository(session).get(str(conn.client_id))
@@ -201,12 +215,54 @@ async def _auto_sync_on_connect(connection_id: str, waha_client: WahaClient) -> 
                 logger.info("Auto-sync skipped — quota exhausted [connection=%s]", connection_id)
                 return
 
+            # Create the job NOW so active_job_status is populated immediately.
+            # The frontend polls connections every 3s and will show "Sincronizando..."
+            # within seconds instead of waiting up to 5 min for the WAHA store.
             job = await create_pending_job(connection_id, session)
+            logger.info("Auto-sync job created on connect [connection=%s job=%s]", connection_id, job.id)
 
-        asyncio.create_task(run_waha_sync_job(connection_id, str(job.id), waha_client, False, "auto_connect"))
-        logger.info("Auto-sync fired on connect [connection=%s job=%s]", connection_id, job.id)
+        # For first-ever syncs: wait for WAHA's store to be populated.
+        # Job is already in DB so the UI reflects the sync in progress.
+        if is_first_sync:
+            max_wait = getattr(settings, "waha_initial_sync_delay_seconds", 300)
+            logger.info(
+                "Auto-sync: waiting for WAHA store (max %ds) [connection=%s job=%s]",
+                max_wait, connection_id, job.id,
+            )
+            await _wait_for_waha_store(session_name, waha_client, max_wait=max_wait)
+
+        asyncio.create_task(
+            _run_sync_with_fallback(connection_id, str(job.id), waha_client),
+        )
+        logger.info("Auto-sync worker started [connection=%s job=%s]", connection_id, job.id)
     except Exception:
         logger.exception("Auto-sync on connect failed [connection=%s]", connection_id)
+
+
+async def _run_sync_with_fallback(connection_id: str, job_id: str, waha_client) -> None:
+    """
+    Wrapper around run_waha_sync_job that catches unhandled exceptions and marks
+    the job as failed so it doesn't sit in 'pending' forever and block future syncs.
+    """
+    try:
+        await run_waha_sync_job(connection_id, job_id, waha_client, False, "auto_connect")
+    except Exception:
+        logger.exception(
+            "Auto-sync worker crashed unexpectedly [connection=%s job=%s]",
+            connection_id, job_id,
+        )
+        from app.database import async_session_factory
+        from app.repositories.analysis_repo import AnalysisJobRepository
+        try:
+            async with async_session_factory() as session:
+                await AnalysisJobRepository(session).update(
+                    job_id,
+                    status="failed",
+                    error_message="Auto-sync worker crashed — will retry on next scheduler run",
+                )
+                await session.commit()
+        except Exception:
+            logger.exception("Could not mark crashed auto-sync job as failed [job=%s]", job_id)
 
 
 # --- Authenticated endpoints ---
@@ -282,7 +338,28 @@ async def list_connections(
 ) -> list[ConnectionResponse]:
     client = await _get_client(user, db)
     conns = await WhatsAppConnectionRepository(db).list_by_client(str(client.id))
-    return [ConnectionResponse.model_validate(c) for c in conns]
+
+    job_repo = AnalysisJobRepository(db)
+    period_start, _ = get_billing_period(client.plan_started_at)
+
+    results: list[ConnectionResponse] = []
+    for conn in conns:
+        resp = ConnectionResponse.model_validate(conn)
+
+        # Active job status — drives the button state in real-time
+        if conn.last_sync_job_id:
+            job = await job_repo.get(str(conn.last_sync_job_id))
+            if job and job.status in ("pending", "processing"):
+                resp.active_job_status = job.status
+
+        # Per-connection remaining quota — so the frontend doesn't rely on a stale
+        # parent quota prop; this updates on every connections refresh
+        jobs_used = await job_repo.count_by_connection_this_period(str(conn.id), period_start)
+        conn_quota = build_quota_status(client.plan, jobs_used, client.plan_started_at)
+        resp.reports_remaining = conn_quota.reports_remaining
+
+        results.append(resp)
+    return results
 
 
 @router.patch("/connections/{connection_id}", response_model=ConnectionResponse)
@@ -454,6 +531,118 @@ async def get_connection_qr(
 ) -> dict:
     conn = await _get_connection_or_404(str(connection_id), user, db)
     return await _fetch_qr_for_connection(conn, db, waha)
+
+
+@router.post("/connections/{connection_id}/auth/request-code")
+async def request_auth_code(
+    connection_id: UUID,
+    body: RequestCodeBody,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+    waha: WahaClient = Depends(get_waha_client),
+) -> dict:
+    """
+    Generate a WhatsApp pairing code as an alternative to QR scanning.
+
+    Flow:
+      1. Frontend calls this endpoint with the user's WhatsApp Business phone number.
+      2. WAHA returns a short pairing code (e.g. "NK1N-E28V").
+      3. Frontend displays the code and instructs the user to enter it in WhatsApp:
+            More options → Linked Devices → Link a Device → Use phone number instead
+      4. Once entered, WhatsApp authenticates the session automatically.
+      5. Frontend polls GET /connections/{id}/status — WORKING triggers auto-sync,
+         identical to the QR-scan flow. No further API call needed from our side.
+    """
+    conn = await _get_connection_or_404(str(connection_id), user, db)
+
+    if conn.status == WahaSessionStatus.WORKING.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ALREADY_CONNECTED", "message": "Esta cuenta ya está conectada."},
+        )
+    if conn.status == WahaSessionStatus.PERSONAL_ACCOUNT_BLOCKED.value:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PERSONAL_ACCOUNT_BLOCKED", "message": "Cuenta bloqueada por usar WhatsApp personal."},
+        )
+
+    conn_repo = WhatsAppConnectionRepository(db)
+
+    # Ensure session is started and awaiting authentication
+    if conn.status in (WahaSessionStatus.STOPPED.value, WahaSessionStatus.FAILED.value):
+        try:
+            if conn.status == WahaSessionStatus.FAILED.value:
+                await waha.restart_session(conn.waha_session_name)
+            else:
+                await waha.start_session(conn.waha_session_name)
+            new_status = (await waha.wait_for_working(conn.waha_session_name, timeout_seconds=60)).value
+            await conn_repo.update(conn.id, status=new_status)
+            await db.commit()
+            # WEBJS: give Chromium 3s to finish rendering the QR/login page
+            # after reaching SCAN_QR_CODE before we call requestPairingCode.
+            if new_status == WahaSessionStatus.SCAN_QR_CODE.value:
+                await asyncio.sleep(3)
+        except WahaSessionNotFoundError:
+            try:
+                session_info = await waha.create_session(conn.waha_session_name, str(conn.id))
+                new_status = session_info.status.value
+                await conn_repo.update(conn.id, status=new_status)
+                await db.commit()
+            except (WahaError, httpx.RequestError) as e:
+                raise HTTPException(status_code=502, detail=f"No se pudo iniciar la sesión: {e}")
+        except (WahaError, httpx.RequestError) as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo iniciar la sesión: {e}")
+
+    phone_digits = re.sub(r"[^\d]", "", body.phone_number)
+
+    # WEBJS engine: WhatsApp Web loads inside Chromium. The session reaches
+    # SCAN_QR_CODE before the page's JavaScript is fully interactive, so
+    # requestPairingCode raises a cryptic 500 if called too soon.
+    # Fix: one automatic retry after a 5-second pause — enough for the page
+    # to finish loading without meaningfully affecting the user experience.
+    pairing_code: str | None = None
+    last_waha_error: WahaError | None = None
+    for attempt in range(2):
+        try:
+            pairing_code = await waha.request_auth_code(conn.waha_session_name, phone_digits)
+            break
+        except WahaError as e:
+            last_waha_error = e
+            if e.status_code == 500 and attempt == 0:
+                logger.info(
+                    "request_auth_code: WAHA 500 on attempt 1, retrying in 5s [session=%s]",
+                    conn.waha_session_name,
+                )
+                await asyncio.sleep(5)
+                continue
+            raise HTTPException(status_code=502, detail=f"WAHA error: {e.message}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo conectar con WAHA: {e}")
+
+    if pairing_code is None:
+        # Persistent 500 from WAHA typically means whatsapp-web.js is incompatible
+        # with the current WhatsApp Web version (internal 'Cmd' object missing).
+        # This is a WAHA/whatsapp-web.js version issue, not a transient error.
+        logger.warning(
+            "request_auth_code: phone-code method failed after retries — "
+            "WAHA WEBJS engine likely incompatible with current WhatsApp Web version "
+            "[session=%s]",
+            conn.waha_session_name,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PHONE_CODE_UNAVAILABLE",
+                "message": (
+                    "El método de código de teléfono no está disponible con la versión "
+                    "actual de WAHA. Usa el código QR para vincular tu cuenta."
+                ),
+            },
+        )
+
+    # Return the code for the frontend to display.
+    # The user enters it in WhatsApp Business → no further call needed from our side.
+    return {"pairing_code": pairing_code, "phone_number": phone_digits}
 
 
 @router.post("/connections/{connection_id}/sync", response_model=SyncResponse, status_code=202)

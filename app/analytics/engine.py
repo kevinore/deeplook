@@ -111,6 +111,7 @@ class AnalyticsEngine:
         # Response-time metrics
         ai_result.first_response_time_seconds = first_rt
         ai_result.avg_response_time_seconds = stats.get("avg_response_time_seconds")
+        ai_result.avg_response_time_bh_seconds = stats.get("avg_response_time_bh_seconds")
         ai_result.median_response_time_seconds = stats.get("median_response_time_seconds")
         ai_result.p95_response_time_seconds = stats.get("p95_response_time_seconds")
         ai_result.unanswered_count = stats.get("unanswered_count", 0)

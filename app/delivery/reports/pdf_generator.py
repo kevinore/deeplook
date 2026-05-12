@@ -95,8 +95,8 @@ def _health_label(score: float) -> str:
     if score >= 55:
         return "Regular"
     if score >= 40:
-        return "Deficiente"
-    return "Crítico"
+        return "Por Mejorar"
+    return "Urgente"
 
 
 def _hour_label(h: int) -> str:
@@ -481,13 +481,21 @@ def generate_pdf_report(
     avg_first_rt = statistics.mean(frt_values) if frt_values else None
     median_first_rt = statistics.median(frt_values) if frt_values else None
 
-    # Avg response times
+    # Avg response times — ALL exchanges (not just first response)
     rt_values = [r.avg_response_time_seconds for r in results if r.avg_response_time_seconds is not None]
     avg_rt = statistics.mean(rt_values) if rt_values else None
+    # median_rt = median of per-conversation AVERAGES (still used for p95 input)
     median_rt = statistics.median(rt_values) if rt_values else None
-    # Use proper linear-interpolation percentile (the prior `sorted(...)[int(0.95*n)]`
-    # silently returned the max for any sample with n < 20 because int(0.95*n) == n-1)
+    # Use proper linear-interpolation percentile
     p95_rt = percentile_of_values(rt_values, 95.0)
+
+    # Robust "typical response time" = median of per-conversation MEDIANS.
+    # Using median_response_time_seconds (the within-conversation median) removes
+    # two layers of outlier inflation: outlier exchanges within a conversation AND
+    # outlier conversations within the batch. This is the number we display on the
+    # headline KPI card and use for the traffic light.
+    med_values = [r.median_response_time_seconds for r in results if r.median_response_time_seconds is not None]
+    typical_rt = statistics.median(med_values) if med_values else median_rt
 
     # F3: First-response-time bucketing — communicates DISTRIBUTION, not just average.
     # An average of "14 min" can hide either "everyone in 14 min" or
@@ -566,49 +574,68 @@ def generate_pdf_report(
         # Stable sort: count DESC, reason text ASC to break ties deterministically
         lost_reasons_summary = sorted(reason_counts.items(), key=lambda x: (-x[1], x[0]))[:5]
 
-    # Quality
+    # Quality — overall (used for health score; includes 0s from unanswered convs)
     quality_results = [r for r in results if r.quality_score is not None]
     avg_quality = round(sum(r.quality_score for r in quality_results) / len(quality_results), 1) if quality_results else None
+
+    # Quality — answered conversations only (used for the chart and secondary display)
+    # Unanswered conversations contribute 0/0/0 by AI rule, so excluding them shows
+    # how the business actually communicates when it does respond.
+    answered_quality_results = [r for r in quality_results if r.unanswered_count == 0]
+    avg_quality_answered = (
+        round(sum(r.quality_score for r in answered_quality_results) / len(answered_quality_results), 1)
+        if answered_quality_results else None
+    )
+    quality_unanswered_excluded = len(quality_results) - len(answered_quality_results)
 
     # Inbound/outbound ratio
     total_inbound = sum(r.inbound_count for r in results)
     total_outbound = sum(r.outbound_count for r in results)
 
-    # Health score
+    # BH-adjusted avg response time (available only for conversations analyzed after this
+    # feature was shipped; None for older data → shown as N/D in the template).
+    rt_bh_values = [r.avg_response_time_bh_seconds for r in results if r.avg_response_time_bh_seconds is not None]
+    avg_rt_bh = statistics.mean(rt_bh_values) if rt_bh_values else None
+
+    # Health score — uses MEDIAN first response time, not the mean.
+    # The mean is heavily skewed by after-hours / weekend messages that inflate
+    # the elapsed time (a client who writes Friday 7pm answered Monday 9am = 38h
+    # raw, but 0h of missed business time). The median is resistant to these
+    # outliers and represents the typical customer experience.
     health = calculate_health_score(
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
     )
     health_explanation = explain_health_score(
         health,
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
     )
 
     recommendations = generate_recommendations(
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
         average_transaction_value=average_transaction_value,
     )
     headline_recommendations = generate_headline_recommendations(
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
     )
     next_steps = generate_next_steps(
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
         is_subscribed=is_subscribed,
     )
     alerts = generate_alerts(results, current_avg_response_time=avg_rt)
 
-    # --- Traffic light status indicators ---
-    first_rt_status = _traffic_light(avg_first_rt, green_max=300, amber_max=1800)
-    avg_rt_status = _traffic_light(avg_rt, green_max=900, amber_max=3600)
+    # --- Traffic light status indicators — all based on MEDIAN first RT ---
+    first_rt_status = _traffic_light(median_first_rt, green_max=300, amber_max=1800)
+    avg_rt_status = _traffic_light(typical_rt, green_max=900, amber_max=3600)
     sentiment_status = _traffic_light(positive_pct, green_max=60, amber_max=40, higher_is_better=True)
     unanswered_status = "green" if total_unanswered == 0 else ("amber" if total_unanswered <= 3 else "red")
     quality_status = _traffic_light(avg_quality, green_max=7, amber_max=5, higher_is_better=True)
@@ -645,14 +672,22 @@ def generate_pdf_report(
         estimated_lost_revenue = len(lost) * average_transaction_value * 0.30
 
     # --- Charts ---
+    # response_time_by_hour is stored with UTC hours; convert to Colombia time
+    # (UTC-5) so chart labels show the correct local hour for the business.
+    # Use MEDIAN per bucket (not mean) to prevent a single outlier conversation
+    # from inflating an entire hour slot.  Require ≥ 2 samples — a single data
+    # point is not representative enough to show as an "average".
+    _COL_OFFSET = -5
     rt_by_hour_agg: dict[int, list[float]] = {}
     for r in results:
         if r.response_time_by_hour:
             for hour_str, avg_sec in r.response_time_by_hour.items():
-                h = int(hour_str)
-                rt_by_hour_agg.setdefault(h, []).append(avg_sec)
+                h_col = (int(hour_str) + _COL_OFFSET) % 24
+                rt_by_hour_agg.setdefault(h_col, []).append(avg_sec)
     by_hour_data: dict[int, float] = {
-        h: statistics.mean(vals) for h, vals in rt_by_hour_agg.items()
+        h: statistics.median(vals)
+        for h, vals in rt_by_hour_agg.items()
+        if len(vals) >= 2
     }
 
     vol_by_hour_data: dict[int, int] = {}
@@ -672,20 +707,24 @@ def generate_pdf_report(
         chart_topics = topics_bar_chart(results)
 
     chart_sentiment = sentiment_donut_chart(results)
-    chart_quality = quality_bars_chart(results)
+    # Chart uses answered-only results so bars reflect real communication quality
+    chart_quality = quality_bars_chart(
+        answered_quality_results if answered_quality_results else results,
+        unanswered_excluded=quality_unanswered_excluded,
+    )
     chart_response_time = response_time_by_hour_chart(by_hour_data) if by_hour_data else None
     chart_volume = volume_by_hour_chart(vol_by_hour_data) if vol_by_hour_data else None
 
     # --- Operational metrics ---
     msgs_per_conv = round(total_messages / total_conv, 1) if total_conv > 0 else 0
 
-    # Derive busiest hours from response_time_by_hour data (proxy for activity)
+    # Derive busiest hours from response_time_by_hour data — same UTC→Colombia conversion.
     hour_conv_count: dict[int, int] = {}
     for r in results:
         if r.response_time_by_hour:
             for hour_str in r.response_time_by_hour:
-                h = int(hour_str)
-                hour_conv_count[h] = hour_conv_count.get(h, 0) + 1
+                h_col = (int(hour_str) + _COL_OFFSET) % 24
+                hour_conv_count[h_col] = hour_conv_count.get(h_col, 0) + 1
 
     busiest_hour_str = None
     business_hours_pct = None
@@ -833,9 +872,10 @@ def generate_pdf_report(
         prev_quality_results = [r for r in prev if r.quality_score is not None]
         prev_avg_quality = round(sum(r.quality_score for r in prev_quality_results) / len(prev_quality_results), 1) if prev_quality_results else None
 
+        prev_median_frt = statistics.median(prev_frt_values) if prev_frt_values else None
         prev_health = calculate_health_score(
             prev,
-            first_response_time_seconds=prev_avg_frt,
+            first_response_time_seconds=prev_median_frt,
             avg_response_time_seconds=prev_avg_frt,
         )
 
@@ -875,7 +915,7 @@ def generate_pdf_report(
     # --- Score breakdown for visual display ---
     score_breakdown = get_health_score_breakdown(
         results,
-        first_response_time_seconds=avg_first_rt,
+        first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
     )
 
@@ -911,8 +951,8 @@ def generate_pdf_report(
     action_plan = _build_action_plan(
         score_breakdown=score_breakdown,
         health_score=health,
-        first_rt_str=_fmt_seconds(avg_first_rt),
-        avg_first_rt=avg_first_rt,
+        first_rt_str=_fmt_seconds(median_first_rt),
+        avg_first_rt=median_first_rt,
         conversion_rate=conversion_rate,
         total_unanswered=total_unanswered,
         topic_counter=topic_counter,
@@ -955,10 +995,14 @@ def generate_pdf_report(
         "total_unanswered": total_unanswered,
         "total_inbound": total_inbound,
         "total_outbound": total_outbound,
-        # Response times
-        "first_rt_str": _fmt_seconds(avg_first_rt),
+        # Response times — first_rt_str is now MEDIAN (used for scoring and headline KPI).
+        # avg_first_rt_str is kept for the detail table (with out-of-hours caveat label).
+        "first_rt_str": _fmt_seconds(median_first_rt),
+        "avg_first_rt_str": _fmt_seconds(avg_first_rt),
         "median_first_rt_str": _fmt_seconds(median_first_rt),
-        "avg_response_time_str": _fmt_seconds(avg_rt),
+        "avg_response_time_str": _fmt_seconds(typical_rt),   # headline: median of per-conv medians
+        "raw_avg_rt_str": _fmt_seconds(avg_rt),             # table only: raw mean (incl. out-of-hours)
+        "avg_rt_bh_str": _fmt_seconds(avg_rt_bh),
         "median_response_time_str": _fmt_seconds(median_rt),
         "p95_response_time_str": _fmt_seconds(p95_rt),
         # Sentiment
@@ -971,8 +1015,10 @@ def generate_pdf_report(
         "converted_count": converted,
         "lost_count": len(lost),
         "small_sample_conversion": small_sample_conversion,
-        # Quality
+        # Quality — overall (for health score) and answered-only (for chart/display)
         "avg_quality": avg_quality,
+        "avg_quality_answered": avg_quality_answered,
+        "quality_unanswered_excluded": quality_unanswered_excluded,
         # Traffic light statuses
         "first_rt_status": first_rt_status,
         "avg_rt_status": avg_rt_status,

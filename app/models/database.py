@@ -171,6 +171,7 @@ class ConversationAnalysis(Base):
     avg_response_time_seconds = Column(Float, nullable=True)
     median_response_time_seconds = Column(Float, nullable=True)
     p95_response_time_seconds = Column(Float, nullable=True)
+    avg_response_time_bh_seconds = Column(Float, nullable=True)
     # `unanswered_count` is now boolean-per-conversation (0|1).
     unanswered_count = Column(Integer, default=0, nullable=False)
     trailing_inbound_messages = Column(Integer, default=0, nullable=False)

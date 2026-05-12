@@ -570,12 +570,12 @@
   <div class="metrics-row">
     <div class="metric-card {{ first_rt_status }}">
       <div class="val">{{ first_rt_str }}</div>
-      <div class="lbl">Primera Respuesta <span class="dot {{ first_rt_status }}"></span></div>
+      <div class="lbl">Primera Respuesta (mediana) <span class="dot {{ first_rt_status }}"></span></div>
       <div class="bench">Benchmark Colombia: &lt;5 min</div>
     </div>
     <div class="metric-card {{ avg_rt_status }}">
       <div class="val">{{ avg_response_time_str }}</div>
-      <div class="lbl">Respuesta Promedio <span class="dot {{ avg_rt_status }}"></span></div>
+      <div class="lbl">Respuesta Típica (mediana) <span class="dot {{ avg_rt_status }}"></span></div>
       <div class="bench">Benchmark Colombia: &lt;15 min</div>
     </div>
     <div class="metric-card {{ sentiment_status }}">
@@ -683,27 +683,35 @@
         <th>Estado</th>
       </tr>
       <tr>
-        <td><strong>Primera respuesta (promedio)</strong></td>
+        <td><strong>Primera respuesta (mediana)</strong></td>
         <td>{{ first_rt_str }}</td>
         <td class="bench-cell">&lt; 5 minutos</td>
         <td><span class="dot {{ first_rt_status }}"></span></td>
       </tr>
       <tr>
-        <td>Primera respuesta (mediana)</td>
-        <td>{{ median_first_rt_str }}</td>
-        <td class="bench-cell">&lt; 5 minutos</td>
+        <td title="Incluye tiempo fuera de horario laboral y fines de semana">Primera respuesta (promedio) ⓘ</td>
+        <td>{{ avg_first_rt_str }}</td>
+        <td class="bench-cell" style="color:#999;font-size:0.85em;">incl. fuera de horario</td>
         <td></td>
       </tr>
+      {% if avg_rt_bh_str and avg_rt_bh_str != 'N/A' %}
       <tr>
-        <td>Tiempo promedio de respuesta</td>
+        <td>Tiempo prom. en horario laboral</td>
+        <td>{{ avg_rt_bh_str }}</td>
+        <td class="bench-cell">&lt; 15 minutos</td>
+        <td></td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td><strong>Respuesta típica (mediana)</strong></td>
         <td>{{ avg_response_time_str }}</td>
         <td class="bench-cell">&lt; 15 minutos</td>
         <td><span class="dot {{ avg_rt_status }}"></span></td>
       </tr>
       <tr>
-        <td>Mediana de respuesta</td>
-        <td>{{ median_response_time_str }}</td>
-        <td class="bench-cell"></td>
+        <td title="Incluye tiempo fuera de horario laboral y fines de semana">Tiempo promedio de respuesta ⓘ</td>
+        <td>{{ raw_avg_rt_str }}</td>
+        <td class="bench-cell" style="color:#999;font-size:0.85em;">incl. fuera de horario</td>
         <td></td>
       </tr>
       <tr>
@@ -844,7 +852,7 @@
       <div class="metric-card {{ quality_status }}">
         <div class="val">{% if avg_quality %}{{ avg_quality }}/10{% else %}N/A{% endif %}</div>
         <div class="lbl">Calidad Promedio <span class="dot {{ quality_status }}"></span></div>
-        <div class="bench">Objetivo: &gt;7.0</div>
+        <div class="bench">Objetivo: &gt;7.0/10</div>
       </div>
     </div>
 
@@ -864,6 +872,11 @@
     {% if chart_quality %}
     <div class="chart-container">
       <img src="data:image/png;base64,{{ chart_quality }}" alt="Desglose de calidad">
+    </div>
+    {% endif %}
+    {% if quality_unanswered_excluded > 0 %}
+    <div style="font-size:9.5px;color:#888;margin-top:4px;padding:0 4px;">
+      &#9432; El puntaje de salud usa el promedio de <strong>todas</strong> las conversaciones (incluyendo las excluidas con calidad 0/10) → calidad total: <strong>{{ avg_quality }}/10</strong>{% if avg_quality_answered %} · solo respondidas: <strong>{{ avg_quality_answered }}/10</strong>{% endif %}.
     </div>
     {% endif %}
 
@@ -1105,10 +1118,11 @@
       <strong>• Velocidad de respuesta (25%):</strong> Basado en el tiempo promedio de primera respuesta.
       Menos de 2 min = 100, menos de 5 min = 85, menos de 15 min = 65,
       menos de 30 min = 45, menos de 1 hora = 25, más de 1 hora = 10.<br><br>
-      <strong>• Cobertura de respuestas (15%):</strong> Basado en el porcentaje de <em>conversaciones</em> que terminaron sin respuesta del negocio (a nivel de chat, no de mensaje).
-      0% sin responder = 100, menos del 5% = 85, menos del 10% = 65, menos del 20% = 40, más del 20% = 15.<br><br>
+      <strong>• Cobertura de respuestas (10%):</strong> Basado en el porcentaje de <em>conversaciones</em> que terminaron sin respuesta del negocio (a nivel de chat, no de mensaje).
+      Mensajes de cierre cortos ("gracias", "ok", "👍") no cuentan como conversación sin responder.
+      0% = 100, &lt;5% = 85, &lt;10% = 65, &lt;20% = 40, &lt;35% = 25, ≥35% = 15.<br><br>
       <strong>• Sentimiento del cliente (20%):</strong> Porcentaje de conversaciones positivas (×100) más neutrales (×50).<br><br>
-      <strong>• Calidad de atención (15%):</strong> Promedio de calidad (0-10) multiplicado por 10.<br><br>
+      <strong>• Calidad de atención (20%):</strong> Promedio de calidad de <em>todas</em> las conversaciones (incluyendo las sin respuesta, que tienen calidad 0) multiplicado por 10. Las conversaciones sin responder arrastran este componente hacia abajo — es intencional.<br><br>
       <strong>• Efectividad de conversión (15%):</strong> Porcentaje de conversaciones convertidas
       (excluyendo las no aplicables).<br><br>
       <strong>• Cobertura horaria (10%):</strong> Si el negocio responde fuera de horario o tiene

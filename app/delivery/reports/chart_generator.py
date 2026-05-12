@@ -190,17 +190,14 @@ sentiment_pie_chart = sentiment_donut_chart
 
 def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
     """
-    Vertical bar chart of avg response time by hour of day, grouped into 4
-    intuitive time-of-day buckets so the report reads at a glance:
+    Vertical bar chart of median response time by hour (Colombia local time).
 
-      • Madrugada    (0–5)   — usually no human attention
-      • Mañana       (6–11)  — start of business day
-      • Tarde        (12–17) — peak hours for most MiPymes
-      • Noche        (18–23) — close-out + after-hours
-
-    Hours with no data are skipped within their bucket. Bars color-graded
-    green / amber / red against LATAM benchmarks. The legend sits ABOVE the
-    chart so it never overlaps the bars.
+    Design decisions:
+    - Symlog Y-axis (linear 0–60 min, log above): keeps fast bars (5 min) and
+      slow bars (72 h) visible on the same chart without distortion.
+    - Y-axis ticks in human-readable format (5m, 15m, 1h, 4h, 24h…) instead of
+      raw minutes — consistent with the value labels on each bar.
+    - Bar value labels always shown in h/m adaptive format.
     """
     if not by_hour:
         with plt.rc_context(_CHART_STYLE):
@@ -211,13 +208,11 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
             ax.axis("off")
             return _fig_to_base64(fig)
 
-    # Group hours into 3 business-relevant segments.
-    # "Madrugada" (0-5 AM) is excluded — no business operates then, so showing
-    # it only adds visual noise without actionable insight.
     SEGMENTS = [
-        ("Mañana",    range(6, 12)),
-        ("Tarde",     range(12, 18)),
-        ("Noche",     range(18, 24)),
+        ("Mañana",  range(6, 12)),
+        ("Tarde",   range(12, 18)),
+        ("Noche",   range(18, 24)),
+        ("Madrugada", range(0, 6)),
     ]
 
     positions: list[float] = []
@@ -228,7 +223,7 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
     segment_edges: list[float] = []
 
     cursor = 0.0
-    SEG_PADDING = 1.2   # blank space between segments
+    SEG_PADDING = 1.2
     BAR_WIDTH = 0.85
     for seg_name, seg_hours in SEGMENTS:
         present = [h for h in seg_hours if h in by_hour]
@@ -249,7 +244,6 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
         cursor += SEG_PADDING
 
     if not positions:
-        # Fallback to "no data" panel if every hour was filtered out somehow.
         with plt.rc_context(_CHART_STYLE):
             fig, ax = plt.subplots(figsize=(_W, _H), constrained_layout=True)
             ax.text(0.5, 0.5, "Sin datos de tiempo de respuesta por hora",
@@ -257,11 +251,22 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
             ax.axis("off")
             return _fig_to_base64(fig)
 
-    max_val = max(values_min)
-
-    # Width grows with bar count so each bar has breathing room.
+    max_val_min = max(values_min)
     n_bars = len(positions)
     fig_w = max(_W, 0.55 * n_bars + 1.5)
+
+    # Symlog threshold: linear scale up to 60 min (1 h), log above.
+    # This makes 5m bars and 72h bars both clearly visible.
+    LINTHRESH = 60.0
+
+    # Human-readable Y-axis tick marks (in minutes).
+    _YTICK_MIN  = [5, 15, 30, 60, 240, 480, 1440, 4320]  # 5m 15m 30m 1h 4h 8h 24h 72h
+    _YTICK_LBL  = ["5m", "15m", "30m", "1h", "4h", "8h", "24h", "72h"]
+    yticks = [v for v in _YTICK_MIN if v <= max_val_min * 1.5]
+    ylabels = [_YTICK_LBL[i] for i, v in enumerate(_YTICK_MIN) if v <= max_val_min * 1.5]
+    # Always include at least the first tick and one above the max bar
+    if not yticks:
+        yticks, ylabels = [_YTICK_MIN[0]], [_YTICK_LBL[0]]
 
     with plt.rc_context(_CHART_STYLE):
         fig, ax = plt.subplots(figsize=(fig_w, 3.2))
@@ -269,34 +274,49 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
         ax.bar(positions, values_min, width=BAR_WIDTH,
                color=bar_colors, edgecolor="white", linewidth=0.8, zorder=2)
 
-        # Value labels above each bar.
+        # Symlog scale keeps tiny and huge bars both visible.
+        ax.set_yscale("symlog", linthresh=LINTHRESH, linscale=0.5)
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(ylabels, fontsize=8)
+
+        # Value labels above each bar — adaptive h/m format.
         for x, val in zip(positions, values_min):
-            label = f"{val:.0f}m" if val < 60 else f"{val / 60:.1f}h"
-            ax.text(x, val + max_val * 0.02, label,
+            lbl = f"{val:.0f}m" if val < 60 else f"{val / 60:.1f}h"
+            # Place label just above the bar; on symlog axis use a small
+            # multiplicative offset so it stays above at any scale.
+            y_label = val * 1.25 if val >= LINTHRESH else val + LINTHRESH * 0.12
+            ax.text(x, y_label, lbl,
                     ha="center", va="bottom",
                     fontsize=7.5, fontweight="600", color="#333")
 
-        # Subtle vertical separators between segments.
+        # Subtle horizontal reference line at 5 min (Excelente threshold).
+        ax.axhline(y=5, color=TEAL, linewidth=0.7, linestyle=":", alpha=0.6, zorder=1)
+        ax.axhline(y=30, color=AMBER, linewidth=0.7, linestyle=":", alpha=0.5, zorder=1)
+
+        # Vertical segment separators.
         for edge in segment_edges[:-1]:
             ax.axvline(x=edge + SEG_PADDING / 2, color="#DDDDDD",
                        linewidth=1.0, linestyle="--", zorder=1)
 
-        # Segment titles inside the plot area, above data zone.
+        # Segment titles — use a blended transform: data X, axes-fraction Y.
+        # This avoids symlog coordinate distortion and always places the label
+        # at a fixed height (88% up the axes) regardless of the Y scale range.
+        import matplotlib.transforms as _transforms
+        _blended = _transforms.blended_transform_factory(ax.transData, ax.transAxes)
         for center, name in segment_centers:
-            ax.text(center, max_val * 1.20, name,
-                    ha="center", va="bottom",
-                    fontsize=9, fontweight="700", color="#0e0749")
+            ax.text(center, 0.88, name,
+                    ha="center", va="top",
+                    fontsize=9, fontweight="700", color="#0e0749",
+                    transform=_blended)
 
-        # X-axis: rotated labels so they never overlap regardless of bar count.
         ax.set_xticks(positions)
         ax.set_xticklabels(tick_labels, fontsize=8, rotation=45, ha="right")
-        ax.set_ylabel("Tiempo promedio (min)", fontsize=9, labelpad=4)
-        ax.set_ylim(0, max_val * 1.38)
+        ax.set_ylabel("Tiempo de respuesta", fontsize=9, labelpad=4)
+        ax.set_ylim(bottom=0)
         ax.set_xlim(min(positions) - 0.8, max(positions) + 0.8)
         ax.spines[["top", "right"]].set_visible(False)
-        ax.grid(**_GRID_Y)
+        ax.grid(axis="y", color="#EBEBEB", linewidth=0.55, zorder=0)
 
-        # Legend — compact row at top, no frame.
         legend_handles = [
             mpatches.Patch(facecolor=TEAL,  label="< 5 min — Excelente"),
             mpatches.Patch(facecolor=AMBER, label="5–30 min — Regular"),
@@ -382,13 +402,19 @@ def topics_bar_chart(results: list[ConversationAnalysisResult], top_n: int = 8) 
         return _fig_to_base64(fig)
 
 
-def quality_bars_chart(results: list[ConversationAnalysisResult]) -> str:
+def quality_bars_chart(
+    results: list[ConversationAnalysisResult],
+    unanswered_excluded: int = 0,
+) -> str:
     """
     Horizontal bar chart of 3 quality dimensions (0–10).
-    Speed-of-response is no longer evaluated by the AI (it's measured deterministically
-    via timestamps and shown separately in the report's "Velocidad" section).
-    Benchmark line at 7.0; subtle background zone shading.
-    Fixed canvas (_W × _H).
+
+    `results` should be the answered-only subset so the bars reflect real
+    communication quality without being dragged down by the 0/0/0 scores
+    that unanswered conversations receive by the AI rule.
+
+    `unanswered_excluded`: how many conversations were excluded (shown as a
+    subtitle note when > 0 so the reader understands the scope).
     """
     dims = ["helpfulness", "tone", "completeness"]
     dim_labels = ["Utilidad", "Tono", "Completitud"]
@@ -414,8 +440,24 @@ def quality_bars_chart(results: list[ConversationAnalysisResult]) -> str:
                        color=bar_colors, edgecolor="white",
                        linewidth=0.8, zorder=2)
 
-        fig.suptitle("Desglose de Calidad de Atención",
-                     fontsize=9.5, fontweight="bold", ha="left", x=0.01)
+        # Title — adds scope note when unanswered conversations were excluded
+        title = "Desglose de Calidad de Atención"
+        if unanswered_excluded > 0:
+            noun = "conversación" if unanswered_excluded == 1 else "conversaciones"
+            subtitle = (
+                f"Solo conversaciones respondidas  ·  "
+                f"{unanswered_excluded} {noun} sin respuesta excluida{'s' if unanswered_excluded > 1 else ''} "
+                f"(calidad 0/10 — ver Cobertura de Respuestas)"
+            )
+        else:
+            subtitle = None
+
+        fig.suptitle(title, fontsize=9.5, fontweight="bold", ha="left", x=0.01)
+        if subtitle:
+            fig.text(0.01, 0.92, subtitle,
+                     fontsize=7.0, color="#888888", ha="left", va="top",
+                     transform=fig.transFigure)
+
         ax.set_xlim(0, 10)
         ax.set_xlabel("Puntaje promedio (0–10)", fontsize=9, labelpad=4)
 
@@ -426,8 +468,6 @@ def quality_bars_chart(results: list[ConversationAnalysisResult]) -> str:
                 fontsize=7.0, color="#999999", va="top", ha="left", zorder=4)
 
         for bar, val in zip(bars, avgs):
-            # When value is near the objective line at 7.0, place label inside the bar
-            # to avoid text collision with the "Objetivo" annotation.
             if 5.8 <= val <= 7.5:
                 ax.text(
                     max(val - 0.2, 0.15),
@@ -450,7 +490,8 @@ def quality_bars_chart(results: list[ConversationAnalysisResult]) -> str:
         ax.spines[["top", "right", "left"]].set_visible(False)
         ax.tick_params(left=False)
         ax.grid(**_GRID_X)
-        fig.tight_layout(rect=[0, 0, 1, 0.88])
+        top_margin = 0.82 if subtitle else 0.88
+        fig.tight_layout(rect=[0, 0, 1, top_margin])
         return _fig_to_base64(fig)
 
 

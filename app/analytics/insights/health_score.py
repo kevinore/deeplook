@@ -14,11 +14,11 @@ Colombia MiPymes 6-component formula:
                               when no in-hours messages were observed)
 
 Score interpretation:
-85-100  Excelente — highly effective WhatsApp operation
-70-84   Bueno     — good with clear areas to improve
-55-69   Regular   — losing sales due to operational gaps
-40-54   Deficiente — serious issues, immediate action needed
-0-39    Crítico   — channel hurting more than helping
+85-100  Excelente   — highly effective WhatsApp operation
+70-84   Bueno       — good with clear areas to improve
+55-69   Regular     — losing sales due to operational gaps
+40-54   Por Mejorar — serious issues, immediate action needed
+0-39    Urgente     — channel hurting more than helping
 """
 from app.models.enums import ConversionStatus, Sentiment
 from app.models.schemas import ConversationAnalysisResult
@@ -42,7 +42,18 @@ def _first_response_time_score(seconds: float | None) -> float | None:
 
 
 def _unanswered_rate_score(rate_pct: float) -> float:
-    """0-100 score based on percentage of conversations that ended unanswered."""
+    """
+    0-100 score based on percentage of conversations that ended unanswered.
+
+    Thresholds use a 6-step curve to avoid hard cliffs that cause large score
+    swings from 1-2 extra unanswered conversations:
+      0%        → 100  (perfect)
+      < 5%      →  85  (excellent, minor omissions)
+      < 10%     →  65  (acceptable, room to improve)
+      < 20%     →  40  (needs attention)
+      < 35%     →  25  (serious gap — intermediate level added to smooth cliff)
+      ≥ 35%     →  15  (critical)
+    """
     if rate_pct == 0:
         return 100.0
     if rate_pct < 5:
@@ -51,6 +62,8 @@ def _unanswered_rate_score(rate_pct: float) -> float:
         return 65.0
     if rate_pct < 20:
         return 40.0
+    if rate_pct < 35:
+        return 25.0
     return 15.0
 
 

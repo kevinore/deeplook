@@ -103,6 +103,7 @@ class ConversationAnalysisResult(BaseModel):
     avg_response_time_seconds: float | None = None
     median_response_time_seconds: float | None = None
     p95_response_time_seconds: float | None = None
+    avg_response_time_bh_seconds: float | None = None  # business-hours-adjusted avg RT
     # `unanswered_count` is now boolean-per-conversation (0|1) — sum across results
     # equals the number of conversations awaiting a business reply.
     unanswered_count: int = 0

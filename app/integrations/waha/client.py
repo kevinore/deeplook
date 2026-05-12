@@ -227,6 +227,31 @@ class WahaClient:
         except WahaSessionNotFoundError:
             return await self.create_session(name, client_id)
 
+    async def request_auth_code(self, session_name: str, phone_number: str) -> str:
+        """
+        Request a WhatsApp link code for phone-number-based device pairing.
+
+        WAHA returns a short code (e.g. "NK1N-E28V") that the user enters in their
+        WhatsApp Business app:
+            More options → Linked Devices → Link a Device → Use phone number instead
+
+        Once the user enters the code in WhatsApp, the session transitions to WORKING
+        automatically — identical to scanning a QR code.
+
+        `phone_number`: country-code + digits, no '+' (e.g. "573178881502").
+        Returns: the pairing code string to display to the user.
+        """
+        r = await self._client.post(
+            f"/api/{session_name}/auth/request-code",
+            json={"phoneNumber": phone_number, "method": None},
+        )
+        self._check(r)
+        data = self._json(r)
+        code = data.get("code") or data.get("pairingCode") or ""
+        if not code:
+            raise WahaError("WAHA did not return a pairing code in the response.", r.status_code)
+        return str(code)
+
     async def wait_for_working(
         self, name: str, timeout_seconds: int = 60, poll_interval: float = 2.0
     ) -> WahaSessionStatus:
