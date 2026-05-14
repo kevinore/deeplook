@@ -235,6 +235,15 @@ def _fmt_seconds(seconds: float | None) -> str:
     return f"{seconds / 3600:.1f}h"
 
 
+def _fmt_hours(hours: float | None) -> str:
+    """Format a duration given in hours: show minutes when under 1 hour."""
+    if hours is None:
+        return "—"
+    if hours < 1:
+        return f"{round(hours * 60)}min"
+    return f"{hours:.1f}h"
+
+
 def _fmt_cop(amount: float) -> str:
     """Format Colombian pesos: $1.900.000 COP."""
     return f"${int(amount):,}".replace(",", ".") + " COP"
@@ -787,7 +796,7 @@ def generate_pdf_report(
     )
     funnel_lost_reasons = sorted(_lr_cntr.items(), key=lambda x: (-x[1], x[0]))[:5]
 
-    # Per-conversation lost detail cards (for small samples and inline detail in large ones)
+    # Per-conversation lost detail cards (for small samples and grouped breakdown in large ones)
     _lost_reason_labels = {
         "price": "Precio alto o desfavorable",
         "competition": "Fue con la competencia",
@@ -810,9 +819,26 @@ def generate_pdf_report(
             except Exception:
                 pass
         funnel_lost_details.append({
+            "reason_key": _r.lost_reason or "other",
             "contact_ref": " · ".join(_ref_parts) if _ref_parts else None,
             "reason_label": _lost_reason_labels.get(_r.lost_reason or "", _r.lost_reason or "Sin clasificar"),
             "detail": _r.lost_reason_detail,
+        })
+
+    # Grouped breakdown for large samples: reason label + count + % + up to 2 examples each
+    funnel_lost_grouped: list[dict] = []
+    for _reason_key, _count in funnel_lost_reasons:
+        _label = _lost_reason_labels.get(_reason_key, _reason_key)
+        _pct = round(_count / funnel_lost_count * 100) if funnel_lost_count else 0
+        _examples = [
+            d for d in funnel_lost_details
+            if d["reason_key"] == _reason_key and d.get("detail")
+        ][:2]
+        funnel_lost_grouped.append({
+            "label": _label,
+            "count": _count,
+            "pct": _pct,
+            "examples": _examples,
         })
 
     # Proactive quote count: quote sent but not explicitly requested
@@ -1011,18 +1037,17 @@ def generate_pdf_report(
         estimated_lost_revenue = len(lost) * average_transaction_value * 0.30
 
     # --- Charts ---
-    # response_time_by_hour is stored with UTC hours; convert to Colombia time
-    # (UTC-5) so chart labels show the correct local hour for the business.
+    # response_time_by_hour keys are already Colombia local hours (UTC-5 applied
+    # inside response_time.by_hour()). No further offset needed here.
     # Only include business hours (8 AM–6 PM) and exclude outliers > 2h —
     # those represent out-of-hours messages that inflate the chart unfairly.
-    _COL_OFFSET = -5
     _BH_START, _BH_END = 8, 18        # Business hours: 8 AM–6 PM Colombia
     _BH_OUTLIER_CAP_S = 7200          # 2 h — beyond this = likely off-hours message
     rt_by_hour_agg: dict[int, list[float]] = {}
     for r in results:
         if r.response_time_by_hour:
             for hour_str, avg_sec in r.response_time_by_hour.items():
-                h_col = (int(hour_str) + _COL_OFFSET) % 24
+                h_col = int(hour_str)  # already Colombia local hour
                 if _BH_START <= h_col < _BH_END:
                     rt_by_hour_agg.setdefault(h_col, []).append(avg_sec)
     by_hour_data: dict[int, float] = {
@@ -1071,26 +1096,32 @@ def generate_pdf_report(
     # --- Operational metrics ---
     msgs_per_conv = round(total_messages / total_conv, 1) if total_conv > 0 else 0
 
-    # Derive busiest hours from response_time_by_hour data — same UTC→Colombia conversion.
+    # Derive busiest hour from response_time_by_hour data (keys already Colombia local).
+    # This counts how many conversations had active inbound→outbound exchanges per hour,
+    # which is a proxy for activity volume (real per-message timestamps aren't stored).
     hour_conv_count: dict[int, int] = {}
     for r in results:
         if r.response_time_by_hour:
             for hour_str in r.response_time_by_hour:
-                h_col = (int(hour_str) + _COL_OFFSET) % 24
+                h_col = int(hour_str)  # already Colombia local hour
                 hour_conv_count[h_col] = hour_conv_count.get(h_col, 0) + 1
 
     busiest_hour_str = None
-    business_hours_pct = None
     limited_hourly_data = False
 
     if hour_conv_count:
         sorted_hours = sorted(hour_conv_count.items(), key=lambda x: x[1], reverse=True)
         top_hour = sorted_hours[0][0]
         busiest_hour_str = _hour_label(top_hour)
-        total_hour_activity = sum(hour_conv_count.values())
-        biz_activity = sum(v for h, v in hour_conv_count.items() if 8 <= h <= 18)
-        business_hours_pct = round(biz_activity / total_hour_activity * 100) if total_hour_activity > 0 else None
         limited_hourly_data = total_messages < 10
+
+    # "Mensajes en horario laboral" — computed from real inbound message timestamps via
+    # out_of_hours_inbound_pct (calculated per-conversation during analysis from actual
+    # NormalizedMessage timestamps). Much more accurate than counting response_time_by_hour
+    # slots, which only covers conversations with ≥2 inbound→outbound exchanges.
+    business_hours_pct: int | None = None
+    if avg_out_of_hours_pct is not None:
+        business_hours_pct = round(100 - avg_out_of_hours_pct)
 
     # Msgs per conversation benchmark interpretation
     if msgs_per_conv <= 6:
@@ -1473,8 +1504,10 @@ def generate_pdf_report(
         "avg_quote_rt_str": _fmt_seconds(avg_quote_rt),
         "followup_pct": followup_pct,
         "median_followup_delay_hours": median_followup_delay_hours,
+        "median_followup_delay_str": _fmt_hours(median_followup_delay_hours),
         "funnel_lost_reasons": funnel_lost_reasons,
         "funnel_lost_details": funnel_lost_details,
+        "funnel_lost_grouped": funnel_lost_grouped,
         "proactive_quote_count": proactive_quote_count,
         "funnel_other_count": funnel_other_count,
         "funnel_status_color": funnel_status_color,

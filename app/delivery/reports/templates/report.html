@@ -1082,7 +1082,7 @@
       {% endif %}
       {% if quoted_count > 0 %}
       <div class="metric-card {{ 'green' if followup_pct >= 50 else ('amber' if followup_pct >= 20 else 'red') }}">
-        <div class="val">{% if median_followup_delay_hours %}{{ median_followup_delay_hours }}h{% else %}—{% endif %}</div>
+        <div class="val">{{ median_followup_delay_str }}</div>
         <div class="lbl">Tardaste en hacer seguimiento tras dar el precio</div>
         <div class="bench">{{ followup_pct }}% de los clientes recibieron seguimiento · {{ quoted_count }} precios informados</div>
       </div>
@@ -1213,66 +1213,81 @@
     </div>
     {% endif %}
 
-    {% if funnel_lost_details %}
-    <div style="margin-top:16px;">
+    {% if funnel_lost_grouped %}
+    <div style="margin-top:18px;">
       <div style="break-after:avoid;page-break-after:avoid;">
-        <strong style="font-size:11px;color:#2D2D2B;">Razones de pérdida en el embudo</strong>
-        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-size:11.5px;font-weight:700;color:#2D2D2B;letter-spacing:0.1px;">Razones de pérdida en el embudo</span>
+          <span style="background:#FDF2EE;color:#B54020;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;border:1px solid #F2C4B2;">{{ funnel_lost_count }} perdidas</span>
+        </div>
       </div>
-      {# Small sample (≤5): per-conversation detail cards #}
+
+      {# ── Small sample (≤5): one detail card per conversation ── #}
       {% if funnel_lost_count <= 5 %}
       {% for item in funnel_lost_details %}
-      <div style="background:#FDF2EE;border-left:3px solid #D85A30;border-radius:4px;padding:8px 12px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
-          <span style="font-size:10.5px;font-weight:700;color:#B54020;">{{ item.reason_label }}</span>
+      <div style="border:1px solid #F2C4B2;border-radius:6px;padding:10px 14px;margin-bottom:8px;background:#FFFAF9;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="display:inline-flex;align-items:center;gap:5px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:#D85A30;flex-shrink:0;display:inline-block;"></span>
+            <span style="font-size:10.5px;font-weight:700;color:#B54020;">{{ item.reason_label }}</span>
+          </span>
           {% if item.contact_ref %}
-          <span style="font-size:9.5px;color:#888;">&#128100; {{ item.contact_ref }}</span>
+          <span style="font-size:9px;color:#AAA;white-space:nowrap;margin-left:8px;">{{ item.contact_ref }}</span>
           {% endif %}
         </div>
         {% if item.detail %}
-        <div style="font-size:10.5px;color:#444;line-height:1.55;">{{ item.detail }}</div>
+        <div style="font-size:10.5px;color:#444;line-height:1.6;padding-left:12px;border-left:2px solid #F2C4B2;">{{ item.detail }}</div>
         {% else %}
-        <div style="font-size:10px;color:#aaa;font-style:italic;">Sin detalle disponible</div>
+        <div style="font-size:10px;color:#bbb;font-style:italic;padding-left:12px;">Sin detalle disponible</div>
         {% endif %}
       </div>
       {% endfor %}
-      {# Large sample (>5): aggregate list + details for first 3 #}
+
+      {# ── Large sample (>5): grouped by reason with bar + examples ── #}
       {% else %}
-      <ul class="questions-list">
-        {% for reason, count in funnel_lost_reasons %}
-        <li>
-          <span class="q-text">{{ reason }}</span>
-          <span class="q-count">{{ count }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% if funnel_lost_details %}
-      <div style="margin-top:10px;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Ejemplos representativos</div>
-      {% for item in funnel_lost_details[:3] %}
-      <div style="background:#FDF6F4;border-left:2px solid #D85A30;border-radius:3px;padding:6px 10px;margin-top:6px;">
-        <div style="font-size:10px;font-weight:700;color:#B54020;margin-bottom:2px;">
-          {{ item.reason_label }}{% if item.contact_ref %} &nbsp;·&nbsp; <span style="font-weight:400;color:#888;">{{ item.contact_ref }}</span>{% endif %}
+      {% for group in funnel_lost_grouped %}
+      <div style="margin-bottom:{% if not loop.last %}18px{% else %}4px{% endif %};">
+
+        {# — Header row — #}
+        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+          {# Dot — aligned to first text line #}
+          <span style="width:8px;height:8px;min-width:8px;border-radius:50%;background:#D85A30;margin-top:3px;display:block;"></span>
+          {# Label — takes all available space, allowed to wrap on long names #}
+          <span style="font-size:11px;font-weight:700;color:#1A1A18;flex:1;line-height:1.4;">{{ group.label }}</span>
+          {# Stats — never wraps, aligned to top #}
+          <span style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;white-space:nowrap;margin-top:1px;">
+            <span style="font-size:10px;color:#888;">{{ group.count }} conv.</span>
+            <span style="background:#FDF2EE;color:#B54020;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:10px;">{{ group.pct }}%</span>
+          </span>
         </div>
-        {% if item.detail %}
-        <div style="font-size:10px;color:#555;line-height:1.5;">{{ item.detail }}</div>
+
+        {# — Progress bar — #}
+        <div style="background:#F0EFED;border-radius:4px;height:7px;margin-bottom:8px;overflow:hidden;">
+          <div style="background:linear-gradient(90deg,#D85A30,#E8896A);border-radius:4px;height:7px;width:{{ group.pct }}%;"></div>
+        </div>
+
+        {# — Example quotes — #}
+        {% if group.examples %}
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          {% for ex in group.examples %}
+          <div style="background:#FAFAFA;border:1px solid #EBEBEB;border-radius:5px;padding:7px 10px 7px 14px;position:relative;">
+            <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#E8A090;border-radius:5px 0 0 5px;"></span>
+            {% if ex.contact_ref %}
+            <div style="font-size:8.5px;color:#BBB;margin-bottom:3px;font-weight:500;letter-spacing:0.2px;">{{ ex.contact_ref }}</div>
+            {% endif %}
+            <div style="font-size:10px;color:#555;line-height:1.55;">{{ ex.detail }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {# — Divider between groups — #}
+        {% if not loop.last %}
+        <div style="border-bottom:1px dashed #EBEBEB;margin-top:14px;"></div>
         {% endif %}
       </div>
       {% endfor %}
       {% endif %}
-      {% endif %}
-    </div>
-    {% elif funnel_lost_reasons %}
-    <div style="margin-top:14px;">
-      <strong style="font-size:11px;color:#2D2D2B;">Razones de pérdida en el embudo</strong>
-      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
-      <ul class="questions-list">
-        {% for reason, count in funnel_lost_reasons %}
-        <li>
-          <span class="q-text">{% if reason == 'price' %}Precio alto o desfavorable{% elif reason == 'competition' %}Fue con la competencia{% elif reason == 'timing' %}No era el momento{% elif reason == 'no_reply' %}No respondió tras recibir el precio (post-seguimiento){% elif reason == 'changed_mind' %}Cambió de opinión{% elif reason == 'other' %}Otro motivo{% else %}{{ reason }}{% endif %}</span>
-          <span class="q-count">{{ count }}</span>
-        </li>
-        {% endfor %}
-      </ul>
     </div>
     {% endif %}
 
