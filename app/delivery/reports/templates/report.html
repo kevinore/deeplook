@@ -1226,19 +1226,17 @@
       {% if funnel_lost_count <= 5 %}
       {% for item in funnel_lost_details %}
       <div style="border:1px solid #F2C4B2;border-radius:6px;padding:10px 14px;margin-bottom:8px;background:#FFFAF9;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="display:inline-flex;align-items:center;gap:5px;">
-            <span style="width:7px;height:7px;border-radius:50%;background:#D85A30;flex-shrink:0;display:inline-block;"></span>
-            <span style="font-size:10.5px;font-weight:700;color:#B54020;">{{ item.reason_label }}</span>
-          </span>
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+          <span style="width:7px;height:7px;min-width:7px;border-radius:50%;background:#D85A30;margin-top:3px;display:block;"></span>
+          <span style="font-size:10.5px;font-weight:700;color:#B54020;flex:1;line-height:1.4;">{{ item.reason_label }}</span>
           {% if item.contact_ref %}
-          <span style="font-size:9px;color:#AAA;white-space:nowrap;margin-left:8px;">{{ item.contact_ref }}</span>
+          <span style="font-size:9px;color:#AAA;white-space:nowrap;flex-shrink:0;">{{ item.contact_ref }}</span>
           {% endif %}
         </div>
         {% if item.detail %}
-        <div style="font-size:10.5px;color:#444;line-height:1.6;padding-left:12px;border-left:2px solid #F2C4B2;">{{ item.detail }}</div>
+        <div style="font-size:10.5px;color:#444;line-height:1.6;padding-left:15px;border-left:2px solid #F2C4B2;">{{ item.detail }}</div>
         {% else %}
-        <div style="font-size:10px;color:#bbb;font-style:italic;padding-left:12px;">Sin detalle disponible</div>
+        <div style="font-size:10px;color:#bbb;font-style:italic;padding-left:15px;">Sin detalle disponible</div>
         {% endif %}
       </div>
       {% endfor %}
