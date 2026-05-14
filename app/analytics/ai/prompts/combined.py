@@ -103,11 +103,13 @@ Aplica esta heurística:
 `secondary_topics`: lista de 0-3 temas adicionales (mismas reglas, mismos valores de la lista cerrada).
 
 ═══════════════════════════════════════════════
-CALIDAD (quality_score, quality_breakdown) — 3 DIMENSIONES, EVALUACIÓN RIGUROSA
+CALIDAD (quality_score, quality_breakdown) — 3 DIMENSIONES, EVALUACIÓN EQUILIBRADA
 ═══════════════════════════════════════════════
 
 FILOSOFÍA:
-Un 10/10 es EXCEPCIONAL — casi nadie debería obtenerlo. Un 8/10 significa "muy bien hecho con un par de detalles a mejorar". Un 6/10 es "cumplió pero con fallos visibles". La mayoría de atenciones reales están entre 5 y 7. Si estás dando 8+ a todo, estás siendo demasiado generoso.
+Una atención correcta — sin fallas graves, que respondió lo que el cliente preguntó — recibe 7 como MÍNIMO. El rango 4–6 existe para fallas reales y visibles, no para describir lo "promedio". Un 10/10 es excepcional. Un 8/10 es muy buena atención. Un 7/10 es atención correcta y completa.
+
+CONTEXTO IMPORTANTE: WhatsApp B2C es inherentemente transaccional. Un mensaje sin saludo elaborado, sin emojis, sin frases de cortesía adicionales es NORMAL — no es una falla. No penalices el tono por ser transaccional; penaliza solo cuando hay fallas que dificultaron la comunicación o afectaron la experiencia del cliente.
 
 NOTA IMPORTANTE: La velocidad de respuesta NO se evalúa aquí — la calculamos con timestamps reales y aparece como métrica separada en el reporte. Tú evalúas QUÉ se respondió y CÓMO, no CUÁNDO.
 
@@ -141,36 +143,40 @@ Escalas EXIGENTES de 0 a 10:
 
 • helpfulness (utilidad): ¿Resolvió exactamente lo que el cliente preguntó?
   - REGLA ABSOLUTA: Si el negocio NO envió NINGÚN mensaje (0 outbound), helpfulness = 0, tone = 0, completeness = 0. El quality_score = 0.0. No hay evaluación posible de algo que no ocurrió.
-  - 9-10: RESERVADO. Anticipó necesidades adicionales, dio valor extra (catálogo, paso a paso).
-  - 7-8: Respondió bien lo preguntado, sin anticipar dudas obvias.
-  - 5-6: Respondió parcialmente o el cliente tuvo que volver a preguntar.
-  - 3-4: Respuesta tangencial, desvió el tema.
+  - REGLA ABSOLUTA: Si el cliente NO envió NINGÚN mensaje (0 inbound — solo mensajes del negocio), helpfulness = 0, tone = 0, completeness = 0. El quality_score = 0.0. No hay pregunta del cliente que evaluar.
+  - 9-10: RESERVADO. Anticipó necesidades adicionales, dio valor extra, resolvió antes de que el cliente preguntara.
+  - 7-8: Respondió correctamente lo que el cliente preguntó. BASELINE para una atención que funcionó.
+  - 5-6: Respondió solo parcialmente — el cliente tuvo que volver a preguntar lo mismo o quedó con dudas claras sin resolver.
+  - 3-4: Respuesta tangencial o desvió el tema principal.
   - 0-2: No respondió lo preguntado o ignoró al cliente.
 
-• tone (tono): ¿Fue profesional, amable y apropiado?
-  - 9-10: RESERVADO. Cordial, cálido, saludo personalizado, despedida apropiada.
-  - 7-8: Profesional y amable, sin calidez extra.
-  - 5-6: Transaccional sin calidez, sin saludo o despedida, fallas menores.
-  - 3-4: Frío, seco, errores ortográficos notables, mensajes fragmentados confusos.
-  - 0-2: Grosero, impaciente, desinteresado.
+• tone (tono): ¿Fue apropiado para una conversación de WhatsApp Business?
+  RECUERDA: WhatsApp B2C es transaccional — la ausencia de calidez extra NO es falla.
+  - 9-10: RESERVADO. Cálido, personalizado, creó conexión genuina con el cliente.
+  - 7-8: Adecuado para el contexto. Respuesta clara, sin errores evidentes, sin fragmentación confusa. BASELINE para una conversación que funcionó.
+  - 5-6: Fallas visibles: errores ortográficos que dificultan la lectura, mensajes fragmentados en exceso, tono notablemente frío ante una queja, respuestas que confunden en lugar de clarificar.
+  - 3-4: Frío o seco de forma que afectó la experiencia, errores frecuentes, mensajes confusos.
+  - 0-2: Grosero, impaciente, desinteresado, o respuesta de una sola letra.
 
-• completeness (completitud): ¿Dio TODA la información que el cliente necesitaba?
-  - 9-10: RESERVADO. Cubrió TODO: precio, proceso, ubicación, tiempo, requisitos, próximos pasos.
-  - 7-8: Cubrió lo principal, omitió 1-2 detalles que el cliente habría querido saber.
-  - 5-6: Información básica solamente. El cliente necesitó preguntar 2+ veces.
-  - 3-4: Respuesta escueta, dejó muchas dudas abiertas.
-  - 0-2: "Escríbeme al número" sin dar info, respuestas evasivas.
+• completeness (completitud): ¿Respondió lo que el cliente necesitaba en este contexto?
+  - 9-10: RESERVADO. Cubrió TODO sin que el cliente tuviera que preguntar nada adicional.
+  - 7-8: Respondió la pregunta principal y lo relevante para ese contexto. BASELINE para una atención completa.
+  - 5-6: Faltó información que el cliente pidió explícitamente, o dejó dudas evidentes que el cliente tuvo que aclarar.
+  - 3-4: Respuesta escueta que dejó la mayoría de la consulta sin responder.
+  - 0-2: Evasiva, redirigió sin dar información, o no respondió lo solicitado.
 
 ───────────────────────────────────────────────
 quality_score: PROMEDIO EXACTO de las 3 dimensiones.
 Calcula: (helpfulness + tone + completeness) / 3
-Redondea a 1 decimal. No lo infles — si el promedio es 6.33, el score es 6.3.
+Redondea a 1 decimal.
 ───────────────────────────────────────────────
 
 CALIBRACIÓN DE REFERENCIA:
-- Una conversación donde el negocio respondió pero con info incompleta → quality 5.5–6.5.
+- Una conversación donde el negocio respondió la pregunta principal sin fallas → quality 7.0–7.5 (BASELINE correcto).
+- Una conversación con fallas menores visibles (info parcial, tono seco) → quality 5.5–6.5.
 - Una conversación rápida, completa y amable → quality 7.5–8.5.
 - Una conversación excepcional (proactiva, cálida, anticipó dudas) → quality 9+.
+- SEÑAL DE ALERTA: Si la mayoría de tus scores están por debajo de 6, estás siendo demasiado exigente. Pregúntate: ¿El cliente obtuvo lo que necesitaba? Si sí → ≥7.
 
 ═══════════════════════════════════════════════
 ESTADO DE CONVERSIÓN (conversion_status, conversion_reason)
@@ -179,10 +185,13 @@ ESTADO DE CONVERSIÓN (conversion_status, conversion_reason)
 USA LOS HECHOS — no contradigas las señales determinísticas. En particular, si is_ghosted=true, NO marques "converted"; usa "lost" o "pending".
 
 • "converted" — VENTA/CITA CONFIRMADA CON EVIDENCIA TEXTUAL CLARA:
-  - El cliente confirmó cita con fecha Y hora específica
-  - El cliente confirmó pago o compra
+  - El CLIENTE confirmó cita con fecha Y hora específica
+  - El CLIENTE confirmó pago o compra
   - El negocio envió confirmación explícita ("tu cita está agendada para el…")
   - DEBE haber evidencia textual clara de cierre. "Pendiente" NO es converted.
+  - CRÍTICO: solo aplica cuando el CLIENTE está comprando algo al negocio. Si el negocio
+    le está pidiendo un favor al cliente (escanear algo, confirmar un dato, hacer una tarea),
+    eso NO es una venta — usa "not_applicable".
 
 • "lost" — CLIENTE SE FUE EXPLÍCITAMENTE O HUBO GHOSTING:
   - Dijo que ya compró en otro lado
@@ -200,6 +209,9 @@ USA LOS HECHOS — no contradigas las señales determinísticas. En particular, 
   - Consulta informativa pura sin interés de compra
   - Mensaje equivocado, spam, broma
   - Tema no comercial
+  - El negocio inició la conversación para pedirle algo AL CLIENTE (tarea operativa,
+    escanear un QR, confirmar un dato, coordinación interna) — no es una venta
+  - Conversación outbound-iniciada donde el cliente no está comprando sino colaborando
 
 conversion_reason: 1 oración en español específica a esta conversación. Null solo si "not_applicable".
 
@@ -229,7 +241,21 @@ RESUMEN, PUNTOS CLAVE Y PREGUNTAS
 EJEMPLOS DE CALIBRACIÓN (anclas de referencia)
 ═══════════════════════════════════════════════
 
-Estos 3 ejemplos te muestran cómo aplicar las escalas en casos reales. NO son reglas — son anclas. Tu evaluación debe estar calibrada a este nivel de exigencia. Compara cada conversación que analices contra estos puntos de referencia.
+Estos 4 ejemplos te muestran cómo aplicar las escalas en casos reales. NO son reglas — son anclas. Tu evaluación debe estar calibrada a este nivel de exigencia. Compara cada conversación que analices contra estos puntos de referencia.
+
+──── ANCLA 0 — Conversación CORRECTA / NORMAL (quality 7.5) — EL CASO MÁS FRECUENTE ────
+
+Esta ancla es la más importante. Representa la atención típica que funciona bien — el cliente preguntó, el negocio respondió correctamente, no hubo problemas graves.
+
+Transcripción:
+[14:22] CUSTOMER: Hola buenas tardes, quería saber si tienen el modelo X disponible y cuánto cuesta
+[14:35] BUSINESS: Buenas tardes! Sí tenemos disponible el modelo X. El precio es $250.000. ¿Te lo separamos?
+[14:38] CUSTOMER: Perfecto, gracias. Paso esta tarde a verlo.
+
+JSON esperado:
+{"sentiment":"neutral","sentiment_score":0.3,"sentiment_reason":"Cliente recibió la info que necesitaba y confirmó que va a pasar. No expresó entusiasmo pero quedó satisfecho.","primary_topic":"disponibilidad","secondary_topics":["precios"],"quality_score":7.5,"quality_breakdown":{"helpfulness":8,"tone":7,"completeness":8},"conversion_status":"pending","conversion_reason":"Cliente confirmó que pasará pero no concretó compra aún.","summary":"Consulta rápida de disponibilidad y precio. El negocio respondió en 13 minutos con la información correcta.","key_points":["Respuesta completa a las dos preguntas","Oferta de separar el producto"],"customer_questions":["tienen modelo X disponible","cuánto cuesta"]}
+
+Por qué 7.5 y no menos: helpfulness 8 (respondió las dos preguntas y ofreció siguiente paso), tone 7 (adecuado para WhatsApp, saludo simple, sin fallas), completeness 8 (dio disponibilidad y precio, lo que el cliente necesitaba). Esta es una atención CORRECTA — el cliente obtuvo lo que buscaba.
 
 ──── ANCLA 1 — Conversación EXCELENTE (quality 8.5) ────
 
@@ -280,6 +306,38 @@ Usa estas anclas para calibrar. Si tu conversación se parece más al Ancla 2 qu
 ══════════════════════════════════════════════
 
 ═══════════════════════════════════════════════
+RELACIÓN CON EL CLIENTE (client_relationship, client_relationship_signals)
+═══════════════════════════════════════════════
+
+Clasifica si este es un cliente NUEVO o RECURRENTE para el negocio.
+
+REGLA PRIORITARIA: Si el bloque HECHOS indica "cliente_es_nuevo: confirmado_por_waha=true/false",
+úsalo como verdad determinista. Solo clasifica con IA cuando el campo dice "desconocido".
+
+SEÑALES DE CLIENTE NUEVO (primera vez que contacta este negocio):
+□ Se presenta explícitamente: "Hola, vi su publicidad", "me recomendaron", "acabo de ver"
+□ Hace preguntas básicas de primer contacto: qué servicios ofrecen, dónde están, cuánto cuesta
+□ El negocio NO lo llama por nombre sin que el cliente se presentara antes
+□ Tono formal inicial sin historia compartida ("Buenos días, quisiera información sobre...")
+□ Pregunta cosas que un cliente habitual ya sabría (dirección, horarios, procedimientos básicos)
+□ No hay referencias a pedidos, citas, productos o conversaciones anteriores
+
+SEÑALES DE CLIENTE RECURRENTE (ya tuvo interacciones con este negocio):
+□ Menciona explícitamente interacciones pasadas: "como la vez anterior", "el equipo que me enviaron", "como acordamos", "según lo que hablamos"
+□ El negocio lo llama por nombre desde el inicio SIN que el cliente se presentara
+□ Continúa un contexto previo sin introducción: "buenas, ya llegó el pedido?"
+□ Refere productos/servicios YA adquiridos: "el equipo que compré", "mi plan actual"
+□ Lenguaje de confianza establecida desde el primer mensaje, sin formalidad inicial
+□ El negocio responde con contexto previo sin que el cliente lo mencione primero
+
+• "new"       — primera vez que este cliente contacta al negocio
+• "returning" — ya tuvo conversaciones o transacciones previas con el negocio
+• "uncertain" — señales insuficientes para clasificar con confianza
+
+client_relationship_signals: lista de 1-3 fragmentos EXACTOS del chat que justifican la clasificación.
+Si el bloque HECHOS ya confirma la relación, incluye esa señal + cualquier señal textual adicional.
+
+═══════════════════════════════════════════════
 PASO DE AUTO-VERIFICACIÓN (OBLIGATORIO ANTES DE RESPONDER)
 ═══════════════════════════════════════════════
 
@@ -290,6 +348,7 @@ Antes de dar tu JSON final, revisa mentalmente:
 3. ¿Mi conversion_status respeta is_ghosted y is_unanswered del bloque de hechos?
 4. ¿Mis primary_topic y secondary_topics están en la lista cerrada?
 5. ¿Las customer_questions están normalizadas (sin nombres propios, sin signos)?
+6. ¿Mi client_relationship respeta cliente_es_nuevo del bloque de hechos si está confirmado?
 
 Si la respuesta a alguna es "no", CORRIGE antes de devolver el JSON.
 
@@ -315,7 +374,9 @@ Retorna EXACTAMENTE este JSON, sin texto adicional, sin markdown, sin explicacio
   "conversion_reason": "<explicación específica o null>",
   "summary": "<2-3 oraciones específicas>",
   "key_points": ["<punto específico>", ...],
-  "customer_questions": ["<pregunta normalizada en minúsculas>", ...]
+  "customer_questions": ["<pregunta normalizada en minúsculas>", ...],
+  "client_relationship": "new" | "returning" | "uncertain",
+  "client_relationship_signals": ["<fragmento exacto del chat>", ...]
 }
 
 ═══════════════════════════════════════════════
@@ -333,23 +394,123 @@ REGLAS FINALES
 # Closed-taxonomy lists. The default list is generic enough for most service
 # businesses; specialised lists are picked by `business_type` keyword matching.
 _BASE_TOPICS = [
-    ('agendar cita', 'cliente quiere reservar/agendar/programar cita o valoración'),
-    ('precios', 'cliente pregunta por costos, tarifas o valores'),
-    ('información de servicios', 'cliente quiere saber qué ofrece, cómo funciona un tratamiento/producto'),
-    ('disponibilidad', 'cliente pregunta por horarios, fechas disponibles, stock'),
-    ('ubicación', 'cliente pregunta dónde está el negocio, direcciones, sedes'),
-    ('reclamo', 'cliente expresa queja, problema o inconformidad'),
-    ('seguimiento', 'cliente pregunta por el estado de algo (pedido, cita, trámite)'),
-    ('pagos', 'cliente pregunta por formas de pago, facturación, transferencias'),
-    ('horarios', 'cliente pregunta por horario de atención del negocio'),
-    ('pedido', 'cliente quiere hacer una compra u ordenar algo específico'),
-    ('garantía', 'cliente pregunta por políticas de devolución, garantía, reembolso'),
-    ('envío/domicilio', 'cliente pregunta por servicio a domicilio, cobertura de entregas, costo de envío'),
-    ('consulta general', 'cualquier otra cosa'),
+    ('agendar cita',          'cliente quiere reservar, agendar o programar una cita, turno o valoración'),
+    ('precios',               'cliente pregunta por costos, tarifas, valores o presupuesto de un servicio/producto específico'),
+    ('información de servicios', 'cliente quiere saber en qué consiste un servicio o producto, cómo funciona, qué incluye'),
+    ('disponibilidad',        'cliente pregunta por fechas disponibles, stock, si hay cupo o si atienden un día específico'),
+    ('ubicación',             'cliente pregunta dónde está el negocio, direcciones, sedes o cómo llegar'),
+    ('reclamo',               'cliente expresa queja, problema, inconformidad o solicita solución a algo que salió mal'),
+    ('seguimiento',           'cliente pregunta por el estado de algo ya iniciado: pedido, cita, trámite, resultado'),
+    ('pagos',                 'cliente pregunta por formas de pago, facturación, transferencias, financiación o cuotas'),
+    ('horarios',              'cliente pregunta exclusivamente por el horario de atención del negocio'),
+    ('pedido',                'cliente quiere hacer una compra u ordenar algo concreto'),
+    ('garantía',              'cliente pregunta por políticas de garantía, devolución o reembolso'),
+    ('envío/domicilio',       'cliente pregunta por servicio a domicilio, cobertura de entregas o costo de envío'),
+    ('urgencia',              'cliente reporta una situación urgente que requiere atención inmediata'),
+    ('consulta general',      'SOLO para mensajes que realmente no encajan en ninguna categoría anterior — saludos sin pregunta, mensajes ilegibles o conversación puramente social sin consulta concreta. NO usar si hay un tema claro aunque sea vago.'),
 ]
 
 _TOPIC_OVERRIDES_BY_TYPE: dict[str, list[tuple[str, str]]] = {
-    # Reserved for future tuning. The default list already covers retail/services/food.
+    "dental": [
+        ('ortodoncia',            'brackets metálicos, ortodoncia invisible, Invisalign, alineadores, retención'),
+        ('implantes dentales',    'implante unitario, implantes múltiples, All-on-4, rehabilitación sobre implantes'),
+        ('blanqueamiento dental', 'blanqueamiento en consultorio, kit casero, mantenimiento post-blanqueamiento'),
+        ('carillas y diseño de sonrisa', 'carillas de porcelana, composite, diseño de sonrisa completo'),
+        ('limpieza dental',       'profilaxis, detartraje, limpieza rutinaria, fluorización'),
+        ('endodoncia',            'tratamiento de conducto, endodoncia, nervio'),
+        ('extracción dental',     'extracción de diente, muelas del juicio, cirugía oral'),
+        ('coronas y prótesis',    'coronas dentales, puentes, prótesis removibles, carillas provisionales'),
+        ('urgencia dental',       'dolor agudo, absceso, fractura dental, emergencia odontológica'),
+        ('control y seguimiento', 'control de brackets, revisión post-operatoria, cita de seguimiento activo'),
+        ('agendar cita',          'cliente quiere reservar, agendar o programar una cita o valoración'),
+        ('precios',               'cliente pregunta por costos o presupuesto de cualquier tratamiento dental'),
+        ('pagos y financiación',  'formas de pago, cuotas, crédito, financiación para tratamientos'),
+        ('reclamo',               'queja, inconformidad, solicitud de garantía o reembolso'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría: saludos sin pregunta, mensajes ilegibles.'),
+    ],
+    "odontolog": [  # also matches "odontología", "odontológic"
+        ('ortodoncia',            'brackets metálicos, ortodoncia invisible, Invisalign, alineadores, retención'),
+        ('implantes dentales',    'implante unitario, implantes múltiples, All-on-4, rehabilitación sobre implantes'),
+        ('blanqueamiento dental', 'blanqueamiento en consultorio, kit casero, mantenimiento post-blanqueamiento'),
+        ('carillas y diseño de sonrisa', 'carillas de porcelana, composite, diseño de sonrisa completo'),
+        ('limpieza dental',       'profilaxis, detartraje, limpieza rutinaria, fluorización'),
+        ('endodoncia',            'tratamiento de conducto, endodoncia, nervio'),
+        ('extracción dental',     'extracción de diente, muelas del juicio, cirugía oral'),
+        ('coronas y prótesis',    'coronas dentales, puentes, prótesis removibles'),
+        ('urgencia dental',       'dolor agudo, absceso, fractura dental, emergencia odontológica'),
+        ('control y seguimiento', 'control de brackets, revisión post-operatoria, cita de seguimiento'),
+        ('agendar cita',          'cliente quiere reservar o programar una cita o valoración'),
+        ('precios',               'costos o presupuesto de cualquier tratamiento dental'),
+        ('pagos y financiación',  'formas de pago, cuotas, crédito, financiación'),
+        ('reclamo',               'queja, inconformidad, garantía o reembolso'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
+    "restaurante": [
+        ('pedido para domicilio', 'cliente quiere hacer un pedido para entregar a domicilio'),
+        ('carta o menú',          'cliente pregunta por los platos disponibles, opciones del menú'),
+        ('reservación de mesa',   'cliente quiere reservar una mesa o preguntar por disponibilidad'),
+        ('seguimiento de pedido', 'cliente pregunta por el estado o tiempo de entrega de su pedido'),
+        ('precios',               'cliente pregunta por el costo de platos o combos'),
+        ('horarios',              'horario de atención del restaurante'),
+        ('ubicación',             'dirección, cómo llegar, sedes'),
+        ('envío/domicilio',       'cobertura de domicilio, costo de envío, zonas de entrega'),
+        ('reclamo',               'queja sobre el pedido, calidad, tiempo de entrega'),
+        ('disponibilidad',        'si hay disponibilidad de un plato o si atienden cierto día'),
+        ('pagos',                 'formas de pago aceptadas, facturación'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
+    "comida": [  # matches "comida", "food", "café", "cafetería"
+        ('pedido para domicilio', 'cliente quiere hacer un pedido para entregar a domicilio'),
+        ('carta o menú',          'cliente pregunta por los platos disponibles, opciones del menú'),
+        ('reservación de mesa',   'cliente quiere reservar una mesa o preguntar por disponibilidad'),
+        ('seguimiento de pedido', 'cliente pregunta por el estado o tiempo de entrega de su pedido'),
+        ('precios',               'cliente pregunta por el costo de platos o combos'),
+        ('horarios',              'horario de atención'),
+        ('ubicación',             'dirección, cómo llegar, sedes'),
+        ('envío/domicilio',       'cobertura de domicilio, costo de envío, zonas de entrega'),
+        ('reclamo',               'queja sobre el pedido, calidad o tiempo de entrega'),
+        ('pagos',                 'formas de pago aceptadas'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
+    "belleza": [
+        ('servicios de cabello',  'corte, tinte, coloración, tratamientos capilares, alisado, permanente'),
+        ('manicure y pedicure',   'manicure, pedicure, uñas acrílicas, semipermanente, nail art'),
+        ('tratamientos faciales', 'limpieza facial, hidratación, botox, rellenos, rejuvenecimiento'),
+        ('depilación',            'depilación con cera, láser, hilo, afeitado'),
+        ('maquillaje',            'maquillaje social, novias, caracterización'),
+        ('extensiones de cabello','extensiones, mechones, keratina'),
+        ('masajes y spa',         'masajes relajantes, terapéuticos, corporales'),
+        ('agendar cita',          'reservar o programar una cita o turno'),
+        ('precios',               'costos de cualquier servicio de belleza'),
+        ('disponibilidad',        'horarios disponibles, cupos, si atienden cierto día'),
+        ('reclamo',               'queja o inconformidad con el servicio recibido'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
+    "estética": [  # also matches "estética", "spa", "salón"
+        ('servicios de cabello',  'corte, tinte, coloración, tratamientos capilares'),
+        ('manicure y pedicure',   'manicure, pedicure, uñas acrílicas, semipermanente'),
+        ('tratamientos faciales', 'limpieza facial, botox, rellenos, rejuvenecimiento'),
+        ('depilación',            'depilación con cera, láser, hilo'),
+        ('maquillaje',            'maquillaje social, novias, caracterización'),
+        ('masajes y spa',         'masajes relajantes, terapéuticos, corporales'),
+        ('agendar cita',          'reservar o programar una cita'),
+        ('precios',               'costos de cualquier servicio'),
+        ('disponibilidad',        'horarios disponibles, cupos disponibles'),
+        ('reclamo',               'queja o inconformidad'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
+    "inmobiliaria": [
+        ('arriendo de inmueble',  'cliente busca arrendar apartamento, casa, local u oficina'),
+        ('venta de inmueble',     'cliente interesado en comprar propiedad'),
+        ('visita a inmueble',     'cliente quiere agendar visita para ver una propiedad'),
+        ('información del inmueble', 'características, área, estrato, estado del inmueble'),
+        ('precios y canon',       'precio de venta, canon de arrendamiento, costos de administración'),
+        ('documentación',         'requisitos, documentos necesarios para arrendar o comprar'),
+        ('seguimiento',           'estado de proceso, firma de contrato, entrega de llaves'),
+        ('reclamo',               'queja sobre el inmueble o el proceso'),
+        ('pagos',                 'formas de pago, cuotas, crédito hipotecario'),
+        ('consulta general',      'SOLO para mensajes que no encajan en ninguna categoría anterior.'),
+    ],
 }
 
 
@@ -360,6 +521,11 @@ def _resolve_topic_list(business_type: str | None) -> list[tuple[str, str]]:
             if key in bt:
                 return topics
     return _BASE_TOPICS
+
+
+def get_topic_names(business_type: str | None = None) -> set[str]:
+    """Return the set of valid topic names for a given business type."""
+    return {name for name, _ in _resolve_topic_list(business_type)}
 
 
 def _format_topic_list(topics: list[tuple[str, str]]) -> str:
@@ -408,7 +574,7 @@ _ACK_NAMES = {
 }
 
 
-def _format_facts(stats: dict, business_type: str | None) -> str:
+def _format_facts(stats: dict, business_type: str | None, wa_is_new_client: bool | None = None) -> str:
     """
     Render the deterministic-facts block that precedes the transcript.
 
@@ -443,6 +609,18 @@ def _format_facts(stats: dict, business_type: str | None) -> str:
     ])
     if out_of_hours is not None:
         lines.append(f"  • % de mensajes del cliente fuera de horario laboral (8 AM–7 PM): {out_of_hours}%")
+    if wa_is_new_client is not None:
+        if wa_is_new_client is False:
+            lines.append(
+                "  • cliente_es_nuevo: confirmado_por_waha=false — "
+                "WAHA tiene mensajes de este contacto anteriores al período analizado → cliente RECURRENTE"
+            )
+        else:
+            lines.append(
+                "  • cliente_es_nuevo: confirmado_por_waha=true — "
+                "WAHA NO tiene mensajes previos de este contacto → probablemente cliente NUEVO "
+                "(usa señales textuales para confirmar)"
+            )
     lines.append("══════════════")
     return "\n".join(lines)
 
@@ -451,6 +629,7 @@ def build_user_prompt(
     transcript: str,
     stats: dict | None = None,
     business_type: str | None = None,
+    wa_is_new_client: bool | None = None,
 ) -> str:
     """
     Build the user-side prompt.
@@ -460,14 +639,15 @@ def build_user_prompt(
     a HECHOS block is prepended so the AI can see the real numbers and is
     forbidden from contradicting them.
 
-    Backwards-compatible: if `stats` is None the function returns the bare
-    transcript prompt (matches the v3 behaviour for any caller that hasn't
-    been updated yet).
+    `wa_is_new_client`: deterministic Layer-1 signal from WAHA pre-window check.
+    False = confirmed returning (WAHA has prior messages).
+    True  = no prior messages found (likely new — AI confirms from text).
+    None  = unknown (txt upload or check was skipped — AI decides independently).
     """
     if stats is None:
         return f"Analiza esta conversación de WhatsApp Business con rigor crítico:\n\n{transcript}"
 
-    facts = _format_facts(stats, business_type)
+    facts = _format_facts(stats, business_type, wa_is_new_client=wa_is_new_client)
     return (
         "Analiza esta conversación de WhatsApp Business con rigor crítico.\n\n"
         f"{facts}\n\n"

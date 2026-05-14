@@ -44,10 +44,15 @@ class AnalyticsEngine:
         stats = conv_stats.conversation_stats(conv)
 
         # Step 2: AI analysis — system prompt parametrised by business_type;
-        # user prompt prepended with deterministic facts block.
+        # user prompt prepended with deterministic facts block (includes wa_is_new_client hint).
         system_prompt = build_system_prompt(business_type)
         transcript = format_conversation(conv)
-        user_prompt = build_user_prompt(transcript, stats=stats, business_type=business_type)
+        user_prompt = build_user_prompt(
+            transcript,
+            stats=stats,
+            business_type=business_type,
+            wa_is_new_client=conv.wa_is_new_client,
+        )
 
         ai_result: ConversationAnalysisResult | None = None
         tokens_input = 0
@@ -86,7 +91,109 @@ class AnalyticsEngine:
             logger.error("AI analysis failed for conversation %s: %s", conversation_id, exc)
             ai_result = ConversationAnalysisResult(conversation_id=conversation_id)
 
-        # Step 3: Insights (single conversation)
+        # Step 3: Commercial funnel — dedicated second AI call.
+        # Runs on every conversation where the client wrote at least one message.
+        # Skipping outbound-only (no client message = no purchase intent possible).
+        _inbound_early = stats.get("by_direction", {}).get("inbound", 0)
+        if _inbound_early > 0:
+            from app.analytics.ai.prompts.funnel_prompt import (
+                FUNNEL_SYSTEM_PROMPT,
+                build_funnel_user_prompt,
+            )
+            from app.analytics.ai.prompts.funnel_parser import (
+                empty_funnel_ai,
+                parse_funnel_response,
+            )
+            from app.analytics.metrics.funnel import detect_funnel_signals, finalize_funnel
+
+            funnel_signals = detect_funnel_signals(conv)
+            funnel_user_prompt = build_funnel_user_prompt(
+                transcript=transcript,
+                inbound_count=_inbound_early,
+                outbound_count=stats.get("by_direction", {}).get("outbound", 0),
+                outbound_media_events=funnel_signals.get("outbound_media_events", []),
+                outbound_price_events=funnel_signals.get("outbound_price_events", []),
+                inbound_quote_request_events=funnel_signals.get("inbound_quote_request_events", []),
+                inbound_intent_events=funnel_signals.get("inbound_intent_events", []),
+                main_conversion_status=(
+                    ai_result.conversion_status.value if ai_result.conversion_status else None
+                ),
+                main_summary=ai_result.summary,
+            )
+
+            try:
+                funnel_response = await self._ai.analyze(
+                    system_prompt=FUNNEL_SYSTEM_PROMPT,
+                    user_prompt=funnel_user_prompt,
+                    temperature=0.0,
+                )
+                funnel_ai = parse_funnel_response(funnel_response.content, conversation_id)
+                tokens_input += funnel_response.tokens_input
+                tokens_output += funnel_response.tokens_output
+                cost_usd += funnel_response.cost_usd
+            except Exception as funnel_exc:
+                logger.error(
+                    "Funnel AI call failed for conversation %s: %s", conversation_id, funnel_exc
+                )
+                funnel_ai = empty_funnel_ai()
+
+            # Phase B: finalize timestamps and derived metrics deterministically
+            funnel_final = finalize_funnel(
+                funnel_signals=funnel_signals,
+                msgs=conv.messages,
+                ai_intent_offset_s=funnel_ai["intent_first_at_offset_seconds"],
+                ai_quote_requested_offset_s=funnel_ai["quote_requested_at_offset_seconds"],
+                ai_has_purchase_intent=funnel_ai["has_purchase_intent"],
+                ai_intent_stage=funnel_ai["intent_stage"],
+                ai_is_ghosted=stats.get("is_ghosted", False),
+            )
+
+            # Merge funnel results into ai_result
+            ai_result.has_purchase_intent = funnel_ai["has_purchase_intent"]
+            ai_result.intent_stage = funnel_ai["intent_stage"]
+            ai_result.lost_reason = funnel_ai["lost_reason"]
+            ai_result.lost_reason_detail = funnel_ai["lost_reason_detail"]
+            ai_result.intent_first_at = funnel_final["intent_first_at"]
+            ai_result.quote_requested_at = funnel_final["quote_requested_at"]
+            ai_result.quote_sent_at = funnel_final["quote_sent_at"]
+            ai_result.quote_response_time_seconds = funnel_final["quote_response_time_seconds"]
+            ai_result.post_quote_followup_count = funnel_final["post_quote_followup_count"]
+            ai_result.followup_delay_hours = funnel_final["followup_delay_hours"]
+
+            # Deterministic floor: if we found an outbound quote/media, purchase intent
+            # is certain regardless of the AI's classification (you don't send a quote
+            # to someone who showed no interest).
+            if funnel_final["quote_sent_at"] is not None and not ai_result.has_purchase_intent:
+                ai_result.has_purchase_intent = True
+                if ai_result.intent_stage in (None, "none"):
+                    ai_result.intent_stage = "quoted"
+
+            # Cross-validation: enforce consistency between funnel and main analysis.
+            # Only propagate conversion_status=converted → intent if the funnel AI
+            # confirmed purchase intent. If the funnel says has_purchase_intent=False
+            # (e.g. operational task, internal coordination), trust the funnel AI —
+            # the main analysis may have misclassified a task completion as a sale.
+            if (
+                ai_result.conversion_status
+                and ai_result.conversion_status.value == "converted"
+                and ai_result.has_purchase_intent  # funnel AI must agree it's commercial
+            ):
+                ai_result.intent_stage = "converted"
+            if ai_result.intent_stage in (
+                "converted", "lost", "negotiating", "quoted", "quote_requested", "exploring"
+            ):
+                ai_result.has_purchase_intent = True
+            # Ghosted + quote sent + no prior followup → pending, not lost
+            if (
+                stats.get("is_ghosted", False)
+                and ai_result.quote_sent_at is not None
+                and (ai_result.post_quote_followup_count or 0) == 0
+                and ai_result.intent_stage == "lost"
+                and ai_result.lost_reason is None
+            ):
+                ai_result.intent_stage = "pending"
+
+        # Step 4: Insights (single conversation)
         first_rt = stats.get("first_response_time_seconds")
         health = hs_module.calculate_health_score(
             [ai_result],
@@ -133,6 +240,18 @@ class AnalyticsEngine:
         ai_result.wa_unread_count = stats.get("wa_unread_count")
         ai_result.wa_is_muted = stats.get("wa_is_muted", False)
         ai_result.wa_is_archived = stats.get("wa_is_archived", False)
+        # Client relationship — merge deterministic (Layer 1) with AI (Layer 2).
+        # wa_is_new_client=False means WAHA confirmed returning client → override AI.
+        # wa_is_new_client=True/None → trust AI classification from text signals.
+        if conv.wa_is_new_client is False:
+            # Deterministic win: WAHA has prior messages → confirmed returning
+            if ai_result.client_relationship in ("new", "uncertain"):
+                ai_result.client_relationship = "returning"
+            ai_result.client_relationship_source = "deterministic"
+        elif ai_result.client_relationship not in (None, "uncertain"):
+            ai_result.client_relationship_source = "ai"
+        else:
+            ai_result.client_relationship_source = None
         # Health / insights / meta
         ai_result.health_score = health
         ai_result.recommendations = recs

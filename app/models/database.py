@@ -192,6 +192,21 @@ class ConversationAnalysis(Base):
     wa_unread_count = Column(Integer, nullable=True)
     wa_is_muted = Column(Boolean, default=False, nullable=False)
     wa_is_archived = Column(Boolean, default=False, nullable=False)
+    # Client relationship classification (new vs returning)
+    client_relationship = Column(String(20), nullable=True)         # new/returning/internal/uncertain
+    client_relationship_source = Column(String(20), nullable=True)  # deterministic/ai/both
+    client_relationship_signals = Column(JSONB, nullable=True)       # list[str]
+    # Commercial proposal funnel
+    has_purchase_intent = Column(Boolean, default=False, nullable=False, server_default="false")
+    intent_stage = Column(String(30), nullable=True)                 # none/exploring/quote_requested/quoted/negotiating/converted/lost/pending
+    intent_first_at = Column(DateTime(timezone=True), nullable=True)
+    quote_requested_at = Column(DateTime(timezone=True), nullable=True)
+    quote_sent_at = Column(DateTime(timezone=True), nullable=True)
+    quote_response_time_seconds = Column(Integer, nullable=True)
+    post_quote_followup_count = Column(Integer, nullable=True)
+    followup_delay_hours = Column(Float, nullable=True)
+    lost_reason = Column(String(30), nullable=True)                  # price/competition/timing/no_reply/changed_mind/other
+    lost_reason_detail = Column(Text, nullable=True)
 
     conversation = relationship("Conversation", back_populates="analyses")
     job = relationship("AnalysisJob", back_populates="analyses")

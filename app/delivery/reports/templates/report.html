@@ -81,7 +81,8 @@
       background: rgba(255,255,255,0.16);
       border: 1px solid rgba(255,255,255,0.22);
       border-radius: 8px;
-      padding: 11px 18px;
+      padding: 13px 20px;
+      margin-top: 16px;
       margin-bottom: 10px;
     }
     .health-number { font-size: 50px; font-weight: 800; line-height: 1; }
@@ -106,12 +107,12 @@
 
     /* ── Section titles ─────────────────────────────────────────── */
     .section-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       color: #0e0749;
-      margin: 20px 0 9px;
-      padding-bottom: 4px;
-      border-bottom: 2px solid #a78bfa;
+      margin: 28px 0 12px;
+      padding-bottom: 5px;
+      border-bottom: 1.5px solid #a78bfa;
       break-after: avoid;
       page-break-after: avoid;
     }
@@ -121,8 +122,10 @@
       font-size: 10.5px;
       color: #999;
       font-style: italic;
-      margin: -2px 0 10px;
-      line-height: 1.5;
+      margin: 2px 0 14px;
+      line-height: 1.55;
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .section-explain strong { font-style: normal; color: #666; }
 
@@ -130,15 +133,17 @@
     .metrics-row {
       display: flex;
       gap: 8px;
-      margin: 9px 0;
+      margin: 14px 0;
       flex-wrap: wrap;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .metric-card {
       flex: 1;
       min-width: 90px;
       background: #F9F9F8;
       border-radius: 6px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       border-left: 4px solid #4f46e5;
     }
     .metric-card.green  { border-left-color: #16a34a; }
@@ -166,24 +171,26 @@
     .dot.gray   { background: #6B7280; }
 
     /* ── Charts ─────────────────────────────────────────────────── */
-    .chart-container { margin: 14px 0 5px; }
+    .chart-container { margin: 18px 0 8px; }
     .chart-container img { width: 100%; height: auto; display: block; }
 
     /* ── Tables ─────────────────────────────────────────────────── */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin: 12px 0;
+      margin: 14px 0;
       font-size: 11px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     th {
       background: #0e0749;
       color: white;
-      padding: 5px 8px;
+      padding: 6px 8px;
       text-align: left;
       font-size: 11px;
     }
-    td { padding: 4px 8px; border-bottom: 1px solid #EDEDED; }
+    td { padding: 5px 8px; border-bottom: 1px solid #EDEDED; }
     tr:nth-child(even) td { background: #F9F9F8; }
     .bench-cell { font-size: 9.5px; color: #C0C0BC; }
 
@@ -215,10 +222,12 @@
       background: #f4f3ff;
       border-left: 4px solid #4f46e5;
       border-radius: 4px;
-      padding: 8px 12px;
-      margin: 12px 0;
+      padding: 10px 14px;
+      margin: 14px 0;
       font-size: 11.5px;
-      line-height: 1.5;
+      line-height: 1.6;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .callout.warn  { background: #FDF6EE; border-left-color: #EF9F27; }
     .callout.alert { background: #FDF2EE; border-left-color: #D85A30; }
@@ -227,9 +236,11 @@
     .warning-banner {
       border-radius: 4px;
       padding: 10px 14px;
-      margin: 14px 0;
+      margin: 16px 0;
       font-size: 11px;
       line-height: 1.5;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .warning-banner.critical {
       background: #FEF3CD;
@@ -264,8 +275,10 @@
       background: #F5F0FF;
       border: 1px solid #C9B8F0;
       border-radius: 6px;
-      padding: 12px 16px;
-      margin: 14px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .revenue-card .revenue-title {
       font-size: 11px;
@@ -331,7 +344,9 @@
     .ops-row {
       display: flex;
       gap: 8px;
-      margin: 10px 0;
+      margin: 14px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .ops-card {
       flex: 1;
@@ -398,11 +413,13 @@
       background: #F9F9F8;
       border: 1px solid #E5E5E2;
       border-radius: 6px;
-      padding: 12px 16px;
-      margin: 12px 0;
+      padding: 14px 18px;
+      margin: 14px 0;
       font-size: 10.5px;
       line-height: 1.6;
       color: #444;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .formula-box strong { color: #0e0749; }
 
@@ -416,7 +433,7 @@
     }
 
     /* ── Score breakdown ────────────────────────────────────────── */
-    .score-breakdown { margin: 14px 0; }
+    .score-breakdown { margin: 28px 0 32px; break-inside: avoid; page-break-inside: avoid; }
     .score-breakdown h3 { font-size: 11px; font-weight: 700; color: #0e0749; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
     .dim-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
     .dim-name { font-size: 10.5px; color: #444; min-width: 160px; }
@@ -428,11 +445,11 @@
     .dim-tag.critical { color: #D85A30; }
 
     /* ── Page 2+ section headers ────────────────────────────────── */
-    .page-title { font-size: 16px; font-weight: 800; color: #0e0749; margin: 0 0 10px; }
-    .page-intro { font-size: 11px; color: #555; line-height: 1.6; margin-bottom: 14px; }
+    .page-title { font-size: 17px; font-weight: 800; color: #0e0749; margin: 0 0 12px; letter-spacing: -0.3px; }
+    .page-intro { font-size: 11px; color: #555; line-height: 1.65; margin-bottom: 18px; border-left: 3px solid #e0deff; padding-left: 10px; }
 
     /* ── Hourly extremes ────────────────────────────────────────── */
-    .hourly-extremes { background: #F9F9F8; border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 11px; line-height: 1.7; }
+    .hourly-extremes { background: #F9F9F8; border-radius: 6px; padding: 14px 16px; margin: 14px 0; font-size: 11px; line-height: 1.7; break-inside: avoid; page-break-inside: avoid; }
     .hourly-extremes .hour-slow { color: #D85A30; font-weight: 600; }
     .hourly-extremes .hour-fast { color: #16a34a; font-weight: 600; }
 
@@ -470,13 +487,19 @@
     /* ── Inline market stat ─────────────────────────────────────── */
     .market-inline { font-size: 10.5px; color: #555; font-style: italic; margin: 10px 0; line-height: 1.6; }
 
-    /* ── Section separators — flow naturally, no forced page breaks ── */
+    /* ── Section separators — natural flow, no forced page breaks ───── */
     .page-section {
-      margin-top: 38px;
+      margin-top: 42px;
       padding-top: 26px;
-      border-top: 2px solid #E5E5E2;
+      border-top: 2.5px solid #dddde8;
     }
     .page-title {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .page-intro {
+      break-before: avoid;
+      page-break-before: avoid;
       break-after: avoid;
       page-break-after: avoid;
     }
@@ -512,7 +535,7 @@
     <div style="font-size:11px;opacity:0.75;margin:8px 0 2px;letter-spacing:0.3px;">Informe para:</div>
     <div class="cover-business">{{ business_name }}</div>
     {% if account_name %}
-    <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.13);border:1.5px solid rgba(255,255,255,0.22);border-radius:8px;padding:8px 16px;margin:14px 0 0;">
+    <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.13);border:1.5px solid rgba(255,255,255,0.22);border-radius:8px;padding:8px 16px;margin:14px 0 6px;">
       <span style="font-size:9px;font-weight:800;color:rgba(255,255,255,0.55);letter-spacing:0.1em;text-transform:uppercase;">Cuenta WhatsApp</span>
       <span style="font-size:12px;color:rgba(255,255,255,0.35);">|</span>
       <span style="font-size:15px;font-weight:700;color:#ffffff;letter-spacing:0.01em;">{{ account_name }}</span>
@@ -596,9 +619,9 @@
       <div class="bench">Objetivo: 0</div>
     </div>
     <div class="metric-card {{ quality_status }}">
-      <div class="val">{% if avg_quality %}{{ avg_quality }}/10{% else %}N/A{% endif %}</div>
+      <div class="val">{% if avg_quality_answered %}{{ avg_quality_answered }}/10{% else %}N/A{% endif %}</div>
       <div class="lbl">Calidad Promedio <span class="dot {{ quality_status }}"></span></div>
-      <div class="bench">Objetivo: &gt;7.0/10</div>
+      <div class="bench">Solo respondidas · Objetivo: &gt;7.0/10</div>
     </div>
   </div>
 
@@ -752,9 +775,9 @@
 
     {# F3 — first-response-time distribution. Shows whether the average is honest. #}
     {% if frt_distribution and total_conversations > 0 %}
-    <div style="margin-top:14px;">
+    <div style="margin-top:22px;break-inside:avoid;page-break-inside:avoid;">
       <div style="font-weight:700;font-size:11px;color:#0e0749;margin-bottom:6px;">
-        Distribución de la primera respuesta (todos tus chats)
+        Distribución de la primera respuesta (chats donde el cliente escribió)
       </div>
       <table style="width:100%;font-size:10.5px;border-collapse:collapse;">
         {% for bucket in frt_distribution %}
@@ -772,14 +795,43 @@
         {% endfor %}
       </table>
       <p style="font-size:9.5px;color:#666;margin:6px 0 0;line-height:1.5;">
-        Un promedio puede esconder dos realidades muy distintas. Esta distribución muestra qué tan repartidos están tus tiempos de respuesta — y dónde están las oportunidades concretas de mejora.
+        Un promedio puede esconder dos realidades muy distintas. Esta distribución muestra qué tan repartidos están tus tiempos de respuesta — y dónde están las oportunidades concretas de mejora.{% if frt_null_answered_count > 0 %} No incluye {{ frt_null_answered_count }} conversaci{{ 'ón' if frt_null_answered_count == 1 else 'ones' }} respondida{{ 's' if frt_null_answered_count != 1 else '' }} fuera de la ventana de análisis.{% endif %}
       </p>
+    </div>
+    {% endif %}
+
+    {# ── FRT segmented: new vs returning clients ───────────────────────────── #}
+    {# Only shown when there is at least one new client in this report         #}
+    {% if new_client_count > 0 %}
+    <div style="margin-top:16px;border:1.5px solid rgba(79,70,229,0.18);border-radius:10px;padding:14px 16px;break-inside:avoid;page-break-inside:avoid;">
+      <div style="font-weight:700;font-size:11.5px;color:#0e0749;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px;">
+        &#128203; Nuevos vs Habituales — Velocidad y Cobertura
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="flex:1;min-width:140px;background:#f8f7ff;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:18px;font-weight:800;color:#4f46e5;">{{ median_frt_new_clients_str }}</div>
+          <div style="font-size:11px;color:rgba(14,7,73,0.55);margin-top:2px;">Respuesta a clientes <strong>nuevos</strong></div>
+          <div style="font-size:10px;color:rgba(14,7,73,0.35);margin-top:1px;">{{ new_client_frt_count }} de {{ new_client_inbound_count }} conversaci{{ 'ones' if new_client_inbound_count != 1 else 'ón' }} respondidas</div>
+        </div>
+        {% if returning_client_count > 0 and median_frt_returning_clients_str != 'N/A' %}
+        <div style="flex:1;min-width:140px;background:#f8f7ff;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:18px;font-weight:800;color:#0e0749;">{{ median_frt_returning_clients_str }}</div>
+          <div style="font-size:11px;color:rgba(14,7,73,0.55);margin-top:2px;">Respuesta a clientes <strong>habituales</strong></div>
+          <div style="font-size:10px;color:rgba(14,7,73,0.35);margin-top:1px;">{{ returning_client_frt_count }} de {{ returning_client_inbound_count }} conversaci{{ 'ones' if returning_client_inbound_count != 1 else 'ón' }} respondidas</div>
+        </div>
+        {% endif %}
+      </div>
+      {% if frt_segment_insight %}
+      <div style="font-size:11px;color:rgba(14,7,73,0.6);border-top:1px solid rgba(79,70,229,0.1);padding-top:8px;">
+        {% if frt_multiplier and frt_multiplier >= 1.5 %}&#9888;{% else %}&#10003;{% endif %} {{ frt_segment_insight }}
+      </div>
+      {% endif %}
     </div>
     {% endif %}
 
     {# WAHA-derived deterministic signals — only rendered when we have real ack data #}
     {% if has_waha_metrics %}
-    <div style="margin-top:14px;background:#F8F8F4;border:1px solid #E5E5DD;border-radius:8px;padding:10px 12px;">
+    <div style="margin-top:14px;background:#F8F8F4;border:1px solid #E5E5DD;border-radius:8px;padding:12px 14px;break-inside:avoid;page-break-inside:avoid;">
       <div style="font-weight:700;font-size:11px;color:#0e0749;margin-bottom:6px;">
         Señales directas de WhatsApp (entregas, lecturas y ghosting)
       </div>
@@ -850,9 +902,9 @@
         <div class="bench">Umbral crítico: &gt;20%</div>
       </div>
       <div class="metric-card {{ quality_status }}">
-        <div class="val">{% if avg_quality %}{{ avg_quality }}/10{% else %}N/A{% endif %}</div>
+        <div class="val">{% if avg_quality_answered %}{{ avg_quality_answered }}/10{% else %}N/A{% endif %}</div>
         <div class="lbl">Calidad Promedio <span class="dot {{ quality_status }}"></span></div>
-        <div class="bench">Objetivo: &gt;7.0/10</div>
+        <div class="bench">Solo conversaciones respondidas · Objetivo: &gt;7.0/10</div>
       </div>
     </div>
 
@@ -876,15 +928,17 @@
     {% endif %}
     {% if quality_unanswered_excluded > 0 %}
     <div style="font-size:9.5px;color:#888;margin-top:4px;padding:0 4px;">
-      &#9432; El puntaje de salud usa el promedio de <strong>todas</strong> las conversaciones (incluyendo las excluidas con calidad 0/10) → calidad total: <strong>{{ avg_quality }}/10</strong>{% if avg_quality_answered %} · solo respondidas: <strong>{{ avg_quality_answered }}/10</strong>{% endif %}.
+      &#9432; La calidad mostrada corresponde solo a conversaciones respondidas ({{ quality_unanswered_excluded }} sin respuesta excluidas — ya penalizadas en Cobertura). Calidad total incluyendo no respondidas: <strong>{{ avg_quality }}/10</strong>.
     </div>
     {% endif %}
 
     <!-- Strategic conversations -->
     {% if strategic_convs %}
-    <div style="margin-top:16px;">
-      <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">Conversaciones destacadas</strong>
-      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 10px;"></div>
+    <div style="margin-top:18px;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">Conversaciones destacadas</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 10px;"></div>
+      </div>
       {% for conv in strategic_convs %}
       <div class="strat-conv {% if conv.category == 'LA MEJOR' %}best{% elif conv.category == 'OPORTUNIDAD PERDIDA' %}lost{% else %}typical{% endif %}">
         <div class="cat-label">{{ conv.label }}</div>
@@ -913,105 +967,11 @@
 
 
   <!-- ══════════════════════════════════════════════════════════════════
-       SECCIÓN 4 — TEMAS + CONVERSIÓN + OPERATIVOS (Página 4)
+       SECCIÓN 4 — DATOS OPERATIVOS (Página 4)
        ══════════════════════════════════════════════════════════════════ -->
   <div class="page-section">
 
-    <div class="page-title">&#127919; ¿Qué preguntan tus clientes y cuántos compran?</div>
-    <div class="page-intro">
-      Esta sección muestra los temas más frecuentes de tus clientes, tu tasa de conversión real vs. el benchmark colombiano,
-      y los datos operativos de tu canal. Usa esta información para priorizar qué mejorar primero.
-    </div>
-
-    <!-- Topics -->
-    <div class="section-title">Temas de Conversación</div>
-    <p class="section-explain">Los temas más frecuentes en las consultas de tus clientes. Crear respuestas rápidas en WhatsApp Business para los temas dominantes puede reducir tu tiempo de respuesta a segundos.</p>
-    {% if single_topic_callout %}
-    <div class="callout">
-      {{ single_topic_callout }}
-      Considera crear una respuesta rápida o un catálogo en WhatsApp Business con esta información — así puedes enviarla en segundos.
-    </div>
-    {% elif chart_topics %}
-    <div class="chart-container">
-      <img src="data:image/png;base64,{{ chart_topics }}" alt="Temas principales de conversación">
-    </div>
-    {% endif %}
-
-    <!-- Customer questions -->
-    {% set repeated_questions = top_questions | selectattr('1', 'ge', 2) | list %}
-    {% if repeated_questions %}
-    <div style="margin-top:12px;">
-      <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">Preguntas más frecuentes de tus clientes</strong>
-      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
-      <ul class="questions-list">
-        {% for q, count in top_questions %}
-        {% if count >= 2 %}
-        <li>
-          <span class="q-text">{{ loop.index }}. "{{ q }}"</span>
-          <span class="q-count">— {{ count }} {{ 'vez' if count == 1 else 'veces' }}</span>
-        </li>
-        {% endif %}
-        {% endfor %}
-      </ul>
-    </div>
-    {% else %}
-    <p style="font-size:10.5px;color:#777;font-style:italic;margin:8px 0 12px;">
-      Las preguntas de tus clientes son variadas — no hay un patrón dominante. Esto sugiere que cada cliente tiene necesidades específicas.
-    </p>
-    {% endif %}
-
-    <!-- Conversion section -->
-    <div class="section-title">Análisis de Conversión</div>
-    <p class="section-explain">La <strong>tasa de conversión</strong> mide qué porcentaje de las conversaciones con intención de compra resultaron en una venta confirmada. Las conversaciones "pendientes" son oportunidades activas.</p>
-
-    <div class="metrics-row">
-      <div class="metric-card gray">
-        <div class="val">{{ total_conversations }}</div>
-        <div class="lbl">Conversaciones totales</div>
-      </div>
-      <div class="metric-card gray">
-        <div class="val">{{ applicable_count }}</div>
-        <div class="lbl">Con intención de compra</div>
-      </div>
-      <div class="metric-card {{ conversion_status_color }}">
-        <div class="val">{{ converted_count }}</div>
-        <div class="lbl">Convertidas <span class="dot {{ conversion_status_color }}"></span></div>
-        <div class="bench">Tasa: {{ conversion_rate }}% · Benchmark Colombia: 35-42%{% if small_sample_conversion %} (muestra pequeña){% endif %}</div>
-      </div>
-      <div class="metric-card {{ unanswered_status }}">
-        <div class="val">{{ total_unanswered }}</div>
-        <div class="lbl">Clientes esperando respuesta <span class="dot {{ unanswered_status }}"></span></div>
-        <div class="bench">Objetivo: 0 conversaciones</div>
-      </div>
-    </div>
-
-    {% if all_applicable_pending and applicable_count > 0 %}
-    <div class="callout warn" style="margin-top:10px;">
-      Las {{ applicable_count }} conversaci{{ 'ón' if applicable_count == 1 else 'ones' }} con intención de compra están <strong>pendientes</strong> — el cliente mostró interés pero aún no se ha confirmado la venta. Haz un seguimiento directo a estos clientes para cerrar las oportunidades abiertas.
-    </div>
-    {% endif %}
-
-    {% if conversion_text %}
-    <p style="font-size:10.5px;color:#555;line-height:1.6;margin:10px 0;">{{ conversion_text }}</p>
-    {% endif %}
-
-    {% if lost_reasons_summary %}
-    <div style="margin-top:14px;">
-      <strong style="font-size:11px;color:#2D2D2B;">Principales razones de pérdida</strong>
-      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
-      <ul class="questions-list">
-        {% for reason, count in lost_reasons_summary %}
-        <li>
-          <span class="q-text">{{ reason }}</span>
-          <span class="q-count">{{ count }} conv.</span>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-
-    <!-- Operational data -->
-    <div class="section-title">Datos Operativos</div>
+    <div class="page-title">&#9881;&#65039; Datos Operativos del Canal</div>
 
     <div class="ops-row">
       <div class="ops-card">
@@ -1053,8 +1013,342 @@
   </div>
 
 
+  <!-- Análisis de Conversión — entre Datos Operativos y Ciclo de Venta -->
+  <div class="page-section">
+
+    <div class="page-title">&#127919; Análisis de Conversión</div>
+    <p class="section-explain">La <strong>tasa de conversión</strong> mide qué porcentaje de las conversaciones con intención de compra resultaron en una venta confirmada. Las conversaciones "pendientes" son oportunidades activas.</p>
+
+    <div class="metrics-row">
+      <div class="metric-card gray">
+        <div class="val">{{ total_conversations }}</div>
+        <div class="lbl">Conversaciones totales</div>
+      </div>
+      <div class="metric-card gray">
+        <div class="val">{{ applicable_count }}</div>
+        <div class="lbl">Evaluadas para conversión</div>
+      </div>
+      <div class="metric-card {{ conversion_status_color }}">
+        <div class="val">{{ converted_count }}</div>
+        <div class="lbl">Convertidas <span class="dot {{ conversion_status_color }}"></span></div>
+        <div class="bench">Tasa: {{ conversion_rate }}% · Benchmark Colombia: 35-42%{% if small_sample_conversion %} (muestra pequeña){% endif %}</div>
+      </div>
+      <div class="metric-card {{ unanswered_status }}">
+        <div class="val">{{ total_unanswered }}</div>
+        <div class="lbl">Clientes esperando respuesta <span class="dot {{ unanswered_status }}"></span></div>
+        <div class="bench">Objetivo: 0 conversaciones</div>
+      </div>
+    </div>
+
+    {% if all_applicable_pending and applicable_count > 0 %}
+    <div class="callout warn" style="margin-top:10px;">
+      Las {{ applicable_count }} conversaci{{ 'ón' if applicable_count == 1 else 'ones' }} evaluadas están <strong>pendientes</strong> — el cliente mostró interés pero aún no se ha confirmado la venta. Haz un seguimiento directo a estos clientes para cerrar las oportunidades abiertas.
+    </div>
+    {% endif %}
+
+    {% if conversion_text %}
+    <p style="font-size:10.5px;color:#555;line-height:1.6;margin:10px 0;">{{ conversion_text }}</p>
+    {% endif %}
+
+  </div>
+
+
   <!-- ══════════════════════════════════════════════════════════════════
-       SECCIÓN 5 — PLAN DE ACCIÓN (Página 5)
+       SECCIÓN 5 — CICLO DE VENTA (Página 5)
+       ══════════════════════════════════════════════════════════════════ -->
+  {% if has_funnel_data %}
+  <div class="page-section">
+
+    <div class="page-title">&#128200; Ciclo de Venta — Propuestas y Resultados</div>
+    <p class="section-explain">Seguimiento desde que el cliente expresa intención real de compra hasta el resultado final — ya sea que se haya enviado una propuesta formal o simplemente informado el precio por chat. Aplica a las <strong>{{ intent_count }}</strong> conversación{{ 'es' if intent_count != 1 else '' }} donde se detectó intención de compra — de {{ total_conversations }} totales.</p>
+
+    <div class="metrics-row">
+      <div class="metric-card gray">
+        <div class="val">{{ intent_count }}</div>
+        <div class="lbl">Con intención de compra</div>
+        <div class="bench">{{ intent_count }} de {{ total_conversations }} conversaciones</div>
+      </div>
+      <div class="metric-card {{ funnel_status_color }}">
+        <div class="val">{{ funnel_conversion_rate }}%</div>
+        <div class="lbl">Tasa de conversión <span class="dot {{ funnel_status_color }}"></span></div>
+        <div class="bench">{{ funnel_converted_count }} cerradas · {{ funnel_lost_count }} perdidas · {{ funnel_pending_count }} pendientes{% if funnel_other_count > 0 %} · {{ funnel_other_count }} en proceso{% endif %}</div>
+      </div>
+      {% if median_quote_rt_str != 'N/A' %}
+      <div class="metric-card gray">
+        <div class="val">{{ median_quote_rt_str }}</div>
+        <div class="lbl">Tiempo para dar el precio</div>
+        <div class="bench">Desde que el cliente muestra interés hasta que el negocio informa el precio</div>
+      </div>
+      {% endif %}
+      {% if quoted_count > 0 %}
+      <div class="metric-card {{ 'green' if followup_pct >= 50 else ('amber' if followup_pct >= 20 else 'red') }}">
+        <div class="val">{% if median_followup_delay_hours %}{{ median_followup_delay_hours }}h{% else %}—{% endif %}</div>
+        <div class="lbl">Tardaste en hacer seguimiento tras dar el precio</div>
+        <div class="bench">{{ followup_pct }}% de los clientes recibieron seguimiento · {{ quoted_count }} precios informados</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if has_cycle_metrics %}
+    <!-- ── Eficiencia del ciclo de compra ── -->
+    <div style="margin-top:22px;break-inside:avoid;page-break-inside:avoid;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;">Eficiencia del ciclo de compra</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 10px;"></div>
+      </div>
+      <div class="metrics-row">
+        {% if quote_coverage_rate is not none %}
+        <div class="metric-card {{ 'green' if quote_coverage_rate >= 80 else ('amber' if quote_coverage_rate >= 50 else 'red') }}">
+          <div class="val">{{ quote_coverage_rate }}%</div>
+          <div class="lbl">Recibieron precio</div>
+          <div class="bench">clientes con intención a los que se les informó el precio · {{ quoted_count }} de {{ intent_count }}</div>
+        </div>
+        {% endif %}
+        {% if quote_to_close_rate is not none %}
+        <div class="metric-card {{ quote_to_close_color }}">
+          <div class="val">{{ quote_to_close_rate }}%</div>
+          <div class="lbl">Precio informado → cierre</div>
+          <div class="bench">de los cotizados, cuántos compraron · benchmark: 25–40%</div>
+        </div>
+        {% endif %}
+        {% if median_qrt_converted_str != 'N/A' and median_qrt_lost_str != 'N/A' %}
+        <div class="metric-card {{ 'green' if qrt_speed_ratio and qrt_speed_ratio <= 2 else ('amber' if qrt_speed_ratio and qrt_speed_ratio <= 4 else 'red') }}">
+          <div class="val">{{ qrt_speed_ratio }}×</div>
+          <div class="lbl">Más lento con clientes perdidos</div>
+          <div class="bench">Compraron: {{ median_qrt_converted_str }} · Perdidos: {{ median_qrt_lost_str }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ── Distribución del tiempo de cotización ── -->
+    {% if qrt_distribution %}
+    <div style="margin-top:18px;break-inside:avoid;page-break-inside:avoid;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;">Tiempo para dar el precio</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        {% for b in qrt_distribution %}{% if b.count > 0 %}
+        <tr>
+          <td style="padding:4px 8px;font-size:10px;color:#444;width:90px;">{{ b.label }}</td>
+          <td style="padding:4px 8px;">
+            <div style="background:#eee;border-radius:3px;height:10px;width:100%;overflow:hidden;">
+              <div style="background:{{ '#22c55e' if b.color=='green' else ('#f59e0b' if b.color=='amber' else '#ef4444') }};height:10px;width:{{ [b.pct,100]|min }}%;border-radius:3px;"></div>
+            </div>
+          </td>
+          <td style="padding:4px 8px;font-size:10px;color:#555;text-align:right;white-space:nowrap;">{{ b.count }} conv. ({{ b.pct }}%)</td>
+        </tr>
+        {% endif %}{% endfor %}
+      </table>
+    </div>
+    {% endif %}
+
+    <!-- ── Seguimiento post-precio ── -->
+    {% if followup_delay_distribution or avg_followup_converted is not none %}
+    <div style="margin-top:18px;break-inside:avoid;page-break-inside:avoid;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;">Seguimiento tras informar el precio</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 10px;"></div>
+      </div>
+      {% if avg_followup_converted is not none or avg_followup_lost is not none %}
+      <div class="metrics-row" style="margin-bottom:12px;">
+        {% if avg_followup_converted is not none %}
+        <div class="metric-card green">
+          <div class="val">{{ avg_followup_converted }}</div>
+          <div class="lbl">Seguimientos (cierres)</div>
+          <div class="bench">promedio de mensajes enviados tras dar el precio en ventas cerradas</div>
+        </div>
+        {% endif %}
+        {% if avg_followup_lost is not none %}
+        <div class="metric-card {{ 'amber' if avg_followup_lost >= 1 else 'red' }}">
+          <div class="val">{{ avg_followup_lost }}</div>
+          <div class="lbl">Seguimientos (perdidos)</div>
+          <div class="bench">promedio de mensajes enviados tras dar el precio en ventas perdidas</div>
+        </div>
+        {% endif %}
+        {% if lost_by_silence_pct is not none and lost_by_silence_pct > 0 %}
+        <div class="metric-card red">
+          <div class="val">{{ lost_by_silence_pct }}%</div>
+          <div class="lbl">Perdidos por silencio</div>
+          <div class="bench">cliente ignoró seguimientos activos sin dar razón explícita</div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if followup_delay_distribution %}
+      <div style="font-size:10px;color:#666;margin-bottom:6px;font-weight:600;">Demora del primer seguimiento</div>
+      <table style="width:100%;border-collapse:collapse;">
+        {% for b in followup_delay_distribution %}{% if b.count > 0 %}
+        <tr>
+          <td style="padding:4px 8px;font-size:10px;color:#444;width:80px;">{{ b.label }}</td>
+          <td style="padding:4px 8px;">
+            <div style="background:#eee;border-radius:3px;height:10px;width:100%;overflow:hidden;">
+              <div style="background:{{ '#22c55e' if b.color=='green' else ('#f59e0b' if b.color=='amber' else '#ef4444') }};height:10px;width:{{ [b.pct,100]|min }}%;border-radius:3px;"></div>
+            </div>
+          </td>
+          <td style="padding:4px 8px;font-size:10px;color:#555;text-align:right;white-space:nowrap;">{{ b.count }} conv. ({{ b.pct }}%)</td>
+        </tr>
+        {% endif %}{% endfor %}
+      </table>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}{# has_cycle_metrics #}
+
+    {% if funnel_stage_counts %}
+    <div style="margin-top:16px;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;">Distribución de etapas del embudo</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      </div>
+      <ul class="questions-list">
+        {% for stage, count in funnel_stage_counts %}
+        <li>
+          <span class="q-text">{% if stage == 'exploring' %}Explorando opciones{% elif stage == 'quote_requested' %}Pidió el precio{% elif stage == 'quoted' %}Precio informado{% elif stage == 'negotiating' %}Negociando{% elif stage == 'converted' %}Convertido / Venta confirmada{% elif stage == 'lost' %}Perdido{% elif stage == 'pending' %}Pendiente (sin cierre){% else %}{{ stage }}{% endif %}</span>
+          <span class="q-count">{{ count }} conv.</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if funnel_lost_details %}
+    <div style="margin-top:16px;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;">Razones de pérdida en el embudo</strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      </div>
+      {# Small sample (≤5): per-conversation detail cards #}
+      {% if funnel_lost_count <= 5 %}
+      {% for item in funnel_lost_details %}
+      <div style="background:#FDF2EE;border-left:3px solid #D85A30;border-radius:4px;padding:8px 12px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span style="font-size:10.5px;font-weight:700;color:#B54020;">{{ item.reason_label }}</span>
+          {% if item.contact_ref %}
+          <span style="font-size:9.5px;color:#888;">&#128100; {{ item.contact_ref }}</span>
+          {% endif %}
+        </div>
+        {% if item.detail %}
+        <div style="font-size:10.5px;color:#444;line-height:1.55;">{{ item.detail }}</div>
+        {% else %}
+        <div style="font-size:10px;color:#aaa;font-style:italic;">Sin detalle disponible</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {# Large sample (>5): aggregate list + details for first 3 #}
+      {% else %}
+      <ul class="questions-list">
+        {% for reason, count in funnel_lost_reasons %}
+        <li>
+          <span class="q-text">{{ reason }}</span>
+          <span class="q-count">{{ count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if funnel_lost_details %}
+      <div style="margin-top:10px;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Ejemplos representativos</div>
+      {% for item in funnel_lost_details[:3] %}
+      <div style="background:#FDF6F4;border-left:2px solid #D85A30;border-radius:3px;padding:6px 10px;margin-top:6px;">
+        <div style="font-size:10px;font-weight:700;color:#B54020;margin-bottom:2px;">
+          {{ item.reason_label }}{% if item.contact_ref %} &nbsp;·&nbsp; <span style="font-weight:400;color:#888;">{{ item.contact_ref }}</span>{% endif %}
+        </div>
+        {% if item.detail %}
+        <div style="font-size:10px;color:#555;line-height:1.5;">{{ item.detail }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endif %}
+    </div>
+    {% elif funnel_lost_reasons %}
+    <div style="margin-top:14px;">
+      <strong style="font-size:11px;color:#2D2D2B;">Razones de pérdida en el embudo</strong>
+      <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      <ul class="questions-list">
+        {% for reason, count in funnel_lost_reasons %}
+        <li>
+          <span class="q-text">{% if reason == 'price' %}Precio alto o desfavorable{% elif reason == 'competition' %}Fue con la competencia{% elif reason == 'timing' %}No era el momento{% elif reason == 'no_reply' %}No respondió tras recibir el precio (post-seguimiento){% elif reason == 'changed_mind' %}Cambió de opinión{% elif reason == 'other' %}Otro motivo{% else %}{{ reason }}{% endif %}</span>
+          <span class="q-count">{{ count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if proactive_quote_count > 0 %}
+    <div class="callout info" style="margin-top:10px;">
+      En <strong>{{ proactive_quote_count }}</strong> conversación{{ 'es' if proactive_quote_count != 1 else '' }} el negocio informó el precio o envió propuesta de forma proactiva, sin que el cliente lo pidiera explícitamente.
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}{# has_funnel_data #}
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 6 — TEMAS + CONVERSIÓN (Página 6)
+       ══════════════════════════════════════════════════════════════════ -->
+  <div class="page-section">
+
+    <div class="page-title">&#127919; ¿Qué preguntan tus clientes y cuántos compran?</div>
+    <div class="page-intro">
+      Esta sección muestra los temas más frecuentes de tus clientes, tu tasa de conversión real vs. el benchmark colombiano,
+      y los datos operativos de tu canal. Usa esta información para priorizar qué mejorar primero.
+    </div>
+
+    <!-- Topics -->
+    <div class="section-title">¿Sobre qué te escriben tus clientes?</div>
+    {% if generic_dominant %}
+    <!-- Consulta General dominates — show questions instead of useless chart -->
+    <p class="section-explain">Tus conversaciones son muy variadas — no hay un tema único dominante. Esto es normal en negocios con consultas diversas o de soporte. Lo más útil es ver directamente qué preguntan:</p>
+    {% else %}
+    <p class="section-explain">Los temas más frecuentes en las consultas de tus clientes. Crear respuestas rápidas en WhatsApp Business para los temas dominantes puede reducir tu tiempo de respuesta a segundos.</p>
+    {% if single_topic_callout %}
+    <div class="callout">
+      {{ single_topic_callout }}
+      Considera crear una respuesta rápida o un catálogo en WhatsApp Business con esta información — así puedes enviarla en segundos.
+    </div>
+    {% elif chart_topics %}
+    <div class="chart-container">
+      <img src="data:image/png;base64,{{ chart_topics }}" alt="Temas principales de conversación">
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <!-- Customer questions — always show, more prominent when generic_dominant -->
+    {% set repeated_questions = top_questions | selectattr('1', 'ge', 2) | list %}
+    {% set show_all_questions = generic_dominant and top_questions %}
+    {% if repeated_questions or show_all_questions %}
+    <div style="margin-top:14px;">
+      <div style="break-after:avoid;page-break-after:avoid;">
+        <strong style="font-size:11px;color:#2D2D2B;text-transform:uppercase;letter-spacing:0.5px;">
+          {% if generic_dominant %}Lo que preguntan tus clientes{% else %}Preguntas más frecuentes de tus clientes{% endif %}
+        </strong>
+        <div style="border-bottom:1px solid #E0E0DD;margin:6px 0 8px;"></div>
+      </div>
+      <ul class="questions-list">
+        {% for q, count in top_questions %}
+        {% if count >= 2 or generic_dominant %}
+        <li>
+          <span class="q-text">{{ loop.index }}. "{{ q }}"</span>
+          {% if count >= 2 %}<span class="q-count">— {{ count }} {{ 'vez' if count == 1 else 'veces' }}</span>{% endif %}
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+    {% elif not generic_dominant %}
+    <p style="font-size:10.5px;color:#777;font-style:italic;margin:8px 0 12px;">
+      Las preguntas de tus clientes son variadas — no hay un patrón dominante. Esto sugiere que cada cliente tiene necesidades específicas.
+    </p>
+    {% endif %}
+
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SECCIÓN 7 — PLAN DE ACCIÓN (Página 7)
        ══════════════════════════════════════════════════════════════════ -->
   <div class="page-section">
 
@@ -1066,20 +1360,63 @@
 
     {% if action_plan %}
     {% for action in action_plan %}
-    <div class="action-card">
-      <div class="action-num">ACCIÓN {{ action.number }}</div>
-      <div class="action-title">{{ action.title }}</div>
-      <div class="action-situation">&#128197; Situación actual: {{ action.current_value }}</div>
-      <div class="action-target">&#127945; Objetivo: {{ action.target }}</div>
-      <div class="action-why-title">Por qué importa:</div>
-      <div class="action-why">{{ action.why }}</div>
-      <div class="action-steps-title">Cómo hacerlo:</div>
+    <div class="action-card" style="break-inside:avoid;page-break-inside:avoid;">
+
+      <!-- Header: number + urgency badge + title -->
+      <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;">
+        <div style="min-width:28px;height:28px;border-radius:50%;background:#0e0749;color:#fff;
+                    font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;
+                    flex-shrink:0;">{{ action.number }}</div>
+        <div style="flex:1;">
+          <div style="font-size:13.5px;font-weight:800;color:#0e0749;line-height:1.3;margin-bottom:5px;">
+            {{ action.title }}
+          </div>
+          {% set urg = action.get('urgency', action.get('urgency_color', 'amber')) if action is mapping else 'amber' %}
+          {% set urg_label = action.get('urgency_label', '🟡 Esta semana') if action is mapping else '🟡 Esta semana' %}
+          {% set urg_color = action.get('urgency_color', 'amber') if action is mapping else 'amber' %}
+          <span style="display:inline-block;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;
+                       background:{{ '#fef9c3' if urg_color == 'amber' else ('#fee2e2' if urg_color == 'red' else '#dcfce7') }};
+                       color:{{ '#854d0e' if urg_color == 'amber' else ('#991b1b' if urg_color == 'red' else '#166534') }};">
+            {{ urg_label }}
+          </span>
+        </div>
+      </div>
+
+      <!-- What's happening (specific data) -->
+      {% set qep = action.get('que_esta_pasando', action.get('current_value', '')) if action is mapping else '' %}
+      {% if qep %}
+      <div style="background:#f5f5fb;border-left:3px solid #7c3aed;border-radius:0 4px 4px 0;
+                  padding:8px 12px;margin-bottom:10px;font-size:10.5px;color:#333;line-height:1.6;">
+        {{ qep }}
+      </div>
+      {% endif %}
+
+      <!-- Why it matters -->
+      {% set pqi = action.get('por_que_importa', action.get('why', '')) if action is mapping else '' %}
+      {% if pqi %}
+      <div style="font-size:10px;color:#666;font-style:italic;margin-bottom:10px;line-height:1.5;">
+        &#x26A0;&#xFE0F; {{ pqi }}
+      </div>
+      {% endif %}
+
+      <!-- Steps -->
+      <div style="font-size:10px;font-weight:700;color:#0e0749;text-transform:uppercase;
+                  letter-spacing:0.5px;margin-bottom:5px;">Cómo hacerlo</div>
       <ul class="action-steps">
         {% for step in action.steps %}
-        <li>{{ step }}</li>
+        <li style="margin-bottom:4px;">{{ step }}</li>
         {% endfor %}
       </ul>
-      <div class="action-impact">&#128176; Impacto estimado: {{ action.impact }}</div>
+
+      <!-- Expected impact -->
+      {% set imp = action.get('impact', action.get('impacto_esperado', '')) if action is mapping else action.get('impact', '') %}
+      {% if imp %}
+      <div style="margin-top:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;
+                  padding:7px 11px;font-size:10px;color:#166534;line-height:1.5;">
+        &#128200; {{ imp }}
+      </div>
+      {% endif %}
+
     </div>
     {% endfor %}
     {% endif %}
@@ -1110,6 +1447,37 @@
       <tr><td>Confianza del análisis</td><td>{{ confidence_level }}</td></tr>
       <tr><td>Versión del reporte</td><td>{{ report_version }}</td></tr>
     </table>
+
+    <!-- AI health score adjustments (shown when applied) -->
+    {% if health_adjustments and health_adjustments.get('ai_applied') %}
+    <div style="margin-top:14px;background:#f5f5fb;border:1px solid #c4b5fd;border-radius:6px;padding:12px 16px;break-inside:avoid;page-break-inside:avoid;">
+      <strong style="font-size:10.5px;color:#6d28d9;">&#129302; Ajuste semántico de IA aplicado al Puntaje de Salud</strong>
+      <div style="font-size:9.5px;color:#666;margin-top:2px;margin-bottom:8px;">La IA evaluó el contexto de las conversaciones y realizó ajustes acotados (máx ±15 pts) para reflejar mejor la realidad del servicio.</div>
+      {% if health_adjustments.get('sentimiento_ajuste', 0) != 0 %}
+      <div style="font-size:10px;margin-bottom:5px;">
+        <span style="font-weight:700;color:#0e0749;">Sentimiento del cliente:</span>
+        <span style="color:{{ '#166534' if health_adjustments.sentimiento_ajuste > 0 else '#991b1b' }};">
+          {{ '+' if health_adjustments.sentimiento_ajuste > 0 else '' }}{{ health_adjustments.sentimiento_ajuste }} pts
+        </span>
+        {% if health_adjustments.get('sentimiento_razon') %}
+        — <span style="color:#555;">{{ health_adjustments.sentimiento_razon }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if health_adjustments.get('calidad_ajuste', 0) != 0 %}
+      <div style="font-size:10px;margin-bottom:5px;">
+        <span style="font-weight:700;color:#0e0749;">Calidad de atención:</span>
+        <span style="color:{{ '#166534' if health_adjustments.calidad_ajuste > 0 else '#991b1b' }};">
+          {{ '+' if health_adjustments.calidad_ajuste > 0 else '' }}{{ health_adjustments.calidad_ajuste }} pts
+        </span>
+        {% if health_adjustments.get('calidad_razon') %}
+        — <span style="color:#555;">{{ health_adjustments.calidad_razon }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      <div style="font-size:9px;color:#999;margin-top:4px;">Confianza del ajuste: {{ health_adjustments.get('confianza', 'media') }}</div>
+    </div>
+    {% endif %}
 
     <!-- Health score formula box -->
     <div class="formula-box" style="margin-top:14px;">

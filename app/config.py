@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # When True, reject connections from personal WhatsApp accounts — only WhatsApp Business allowed.
     # Set WAHA_REQUIRE_BUSINESS_ACCOUNT=false to allow personal accounts (useful for dev/testing).
     waha_require_business_account: bool = True
+    # Whether to include WhatsApp group chats in the analysis.
+    # Default False: groups are skipped (only 1-to-1 customer conversations are analyzed).
+    # Set WAHA_INCLUDE_GROUPS=true for clients who want group conversations in their reports.
+    # Note: group messages have multiple senders, so response-time metrics are less meaningful.
+    waha_include_groups: bool = False
     # Max seconds to wait for WAHA's chat store to be populated after first QR pairing.
     # The system polls every 15s and proceeds as soon as DM chats appear — no fixed sleep.
     # This ceiling only kicks in if the store is still empty (e.g. account with 0 DMs).
@@ -92,6 +97,9 @@ class Settings(BaseSettings):
     email_enabled: bool = True
     # Public URL where the SPA is hosted (used in CTA links inside emails)
     frontend_base_url: str = "http://localhost:5173"
+    # Show the "Conversaciones destacadas" section in PDF reports.
+    # Off by default — enable with REPORT_SHOW_FEATURED_CONVERSATIONS=true
+    report_show_featured_conversations: bool = False
     # Dev server URL — added to CORS automatically; change when Vite picks a different port
     frontend_dev_url: str = ""
 

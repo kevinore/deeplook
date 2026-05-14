@@ -127,6 +127,28 @@ class ConversationAnalysisResult(BaseModel):
     wa_unread_count: int | None = None
     wa_is_muted: bool = False
     wa_is_archived: bool = False
+    # Client relationship — new vs returning
+    # "new"       first-time client (no prior messages in WAHA history)
+    # "returning" client has had previous conversations with this business
+    # "internal"  collaborator, supplier, or internal contact (not a customer)
+    # "uncertain" insufficient signals to classify
+    client_relationship: str | None = None
+    # "deterministic" = WAHA confirmed (pre-window message check)
+    # "ai"            = AI inferred from conversation text
+    # "both"          = both deterministic and AI agree
+    client_relationship_source: str | None = None
+    client_relationship_signals: list[str] = Field(default_factory=list)
+    # Commercial proposal funnel
+    has_purchase_intent: bool = False
+    intent_stage: str | None = None           # none/exploring/quote_requested/quoted/negotiating/converted/lost/pending
+    intent_first_at: datetime | None = None
+    quote_requested_at: datetime | None = None
+    quote_sent_at: datetime | None = None
+    quote_response_time_seconds: int | None = None
+    post_quote_followup_count: int | None = None
+    followup_delay_hours: float | None = None
+    lost_reason: str | None = None            # price/competition/timing/no_reply/changed_mind/other
+    lost_reason_detail: str | None = None
     # Health / Insights
     health_score: float | None = None
     recommendations: list[str] = Field(default_factory=list)

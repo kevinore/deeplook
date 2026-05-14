@@ -150,53 +150,104 @@ def max_response_time(messages: list[NormalizedMessage]) -> float | None:
     return max(times) if times else None
 
 
-# Words/emojis commonly used as conversation-closing acknowledgments.
-# A trailing INBOUND consisting only of these tokens does NOT require a
-# business reply — the business already responded and the customer just
-# closed politely.  Kept intentionally small to avoid false negatives.
-_CLOSING_TOKENS: frozenset[str] = frozenset({
-    "ok", "okay", "gracias", "muchas", "mil", "bien", "listo",
-    "dale", "perfecto", "claro", "entendido", "excelente", "genial",
-    "bueno", "de", "acuerdo", "chévere", "chevere", "super", "súper",
+import unicodedata as _ucd
+
+# Known closing/acknowledgment words. A message consisting ONLY of these words
+# (optionally combined with emojis) is considered a conversation-ending courtesy
+# that doesn't require a business reply.
+# If the client adds ANY other word (question, request, new topic), the entire
+# message is treated as unanswered — the rule is strict to avoid false negatives.
+_CLOSING_WORDS: frozenset[str] = frozenset({
+    "ok", "okay", "okey",
+    "gracias", "muchas", "mil",
+    "bien", "listo", "dale", "va",
+    "perfecto", "claro", "entendido",
+    "excelente", "genial", "bueno",
+    "de", "acuerdo",
+    "chévere", "chevere", "chévere",
+    "super", "súper",
     "👍", "✅", "🙏", "😊", "🤝", "👌", "💪", "✔", "☑",
 })
-_MAX_CLOSING_WORDS = 5  # trailing messages longer than this are always real
+_MAX_CLOSING_WORDS = 5  # messages longer than this are never filtered
+
+
+def _token_is_closing(token: str) -> bool:
+    """True if a single word token is either a closing word or a pure emoji/symbol."""
+    cleaned = token.lower().strip("!.?¡¿,;:'\"-")
+    if cleaned in _CLOSING_WORDS:
+        return True
+    # Pure emoji / symbol token — no letters or digits at all
+    return bool(cleaned) and not any(
+        _ucd.category(c)[0] in ("L", "N") for c in cleaned
+    )
 
 
 def _is_trailing_acknowledgment(msg: NormalizedMessage) -> bool:
     """
-    True when the message looks like a closing acknowledgment that doesn't
-    need a reply ("gracias", "ok dale", "👍", etc.).
+    True when the message is a pure courtesy closing that needs no reply.
 
-    Only triggers on very short messages whose every word is a known
-    closing token.  Longer messages or messages with substantive content
-    are never filtered — we'd rather err on the side of counting too many
-    unanswered conversations than miss real unanswered ones.
+    Filtered:
+      • Sticker / emoji-reaction messages (WAHA type=sticker or type=unknown+empty)
+      • Messages consisting ONLY of closing words and/or emojis:
+          "gracias"          → filter
+          "ok"               → filter
+          "dale 👍"          → filter (closing word + emoji)
+          "muchas gracias"   → filter (both are closing words)
+          "de acuerdo"       → filter (both are closing words)
+      • Pure emoji sequences with no text: "👍", "✅✅", "🙏😊"
+
+    NOT filtered (counted as unanswered):
+      • Any message containing even one non-closing word:
+          "gracias, ¿cuándo me lo envían?" → NOT filtered (has a question)
+          "ok, ¿y el precio?"              → NOT filtered
+          "listo, ya pagué"                → NOT filtered ("ya", "pagué" ≠ closing)
+          "ok 👍 pero ¿qué debo llevar?"  → NOT filtered
     """
-    text = (getattr(msg, "text", None) or "").strip().lower()
+    from app.models.enums import MessageType
+
+    msg_type = getattr(msg, "message_type", MessageType.TEXT)
+
+    if msg_type == MessageType.STICKER:
+        return True
+
+    text = (msg.text_content or "").strip()
+
+    # WAHA emoji reactions arrive as type=UNKNOWN with empty text
+    if msg_type == MessageType.UNKNOWN and not text:
+        return True
+
+    # Media messages (image, audio, doc) with no caption — client sent something,
+    # needs a response
     if not text:
         return False
+
     words = text.split()
     if len(words) > _MAX_CLOSING_WORDS:
-        return False
-    cleaned = {w.rstrip("!.?¡¿,;:") for w in words}
-    return bool(cleaned) and cleaned.issubset(_CLOSING_TOKENS)
+        return False  # too long to be a simple acknowledgment
+
+    # Every word must be a closing token or pure emoji — otherwise not filtered
+    return all(_token_is_closing(w) for w in words)
 
 
 def is_unanswered(messages: list[NormalizedMessage]) -> bool:
     """
     True iff the conversation ended with a substantive INBOUND message
-    (customer wrote last and the business never replied).
+    (customer wrote last and the business has not replied).
 
-    Trailing acknowledgment messages ("gracias", "ok", "👍", etc.) are
-    skipped — the business already responded and the customer just closed
-    politely.  System messages are also ignored.
+    Deterministic rule: scan backwards through messages.
+      • OUTBOUND found first  → answered (False)
+      • INBOUND that is a pure reaction/emoji → skip (not a real message turn)
+      • INBOUND with any textual content      → unanswered (True)
+
+    Text messages — even short ones like "gracias" or "ok" — are always
+    counted as unanswered because in a sales context they may signal a
+    client still waiting for a follow-up, not a closed deal.
     """
     sorted_msgs = sorted(messages, key=lambda m: m.timestamp)
     for msg in reversed(sorted_msgs):
         if msg.direction == MessageDirection.INBOUND:
             if _is_trailing_acknowledgment(msg):
-                continue  # closing courtesy — keep scanning backwards
+                continue  # pure emoji reaction — not a real conversation turn
             return True
         if msg.direction == MessageDirection.OUTBOUND:
             return False

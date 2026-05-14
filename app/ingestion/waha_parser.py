@@ -58,9 +58,16 @@ _TYPE_MAP: dict[str, MessageType] = {
 }
 
 _PAUSE_BETWEEN_PAGES = 0.8   # seconds between paginated pages of the SAME chat
-_WAHA_FETCH_CONCURRENCY = 3  # concurrent chat fetches — conservative for WAHA Core (single Chromium)
-_DELAY_BEFORE_FETCH = (0.2, 0.7)  # (min, max) random seconds before fetching each chat's messages
-_MIN_MESSAGES_PER_CHAT = 2   # chats with fewer real messages are dropped (noise)
+# concurrent chat fetches — conservative for WAHA Core (single Chromium)
+_WAHA_FETCH_CONCURRENCY = 3
+# (min, max) random seconds before fetching each chat's messages
+_DELAY_BEFORE_FETCH = (0.2, 0.7)
+# chats with fewer real messages are dropped (noise)
+_MIN_MESSAGES_PER_CHAT = 1
+# Intentionally 1, not 2: a chat where the client sent exactly 1 message
+# and the business never replied is among the MOST important conversations
+# for the report. Raising this threshold was discarding those single-message
+# unanswered chats.
 
 
 @dataclass
@@ -140,9 +147,37 @@ async def build_batch_from_waha(
     all_chats = await waha_client.list_chats(session_name)
     report.total_chats_fetched = len(all_chats)
 
-    # Separate groups from DMs (groups are irrelevant for business analytics)
-    dm_chats = [c for c in all_chats if not c.id.endswith("@g.us")]
-    report.chats_skipped_groups = len(all_chats) - len(dm_chats)
+    # Groups: include or exclude based on WAHA_INCLUDE_GROUPS setting.
+    # Default (False): only 1-to-1 DM conversations — response-time and conversion
+    # metrics are meaningful only for individual customer chats.
+    # True: also include group chats — useful for clients who use groups for sales/support.
+    include_groups = getattr(settings, "waha_include_groups", False)
+    def _is_group(chat: WahaChatOverview) -> bool:
+        """
+        Double-check: a chat is a group if EITHER condition is true.
+        Using both guards against edge cases where one signal is missing:
+          • isGroup=True  — WAHA's explicit flag (most reliable)
+          • @g.us suffix  — standard WhatsApp group JID format
+        WhatsApp Communities and channels may use different suffixes, so
+        relying only on the suffix could let them slip through.
+        """
+        return chat.isGroup or chat.id.endswith("@g.us")
+
+    if include_groups:
+        dm_chats = all_chats  # keep everything including groups
+        report.chats_skipped_groups = 0
+        logger.info(
+            "build_batch: WAHA_INCLUDE_GROUPS=true — %d groups included [session=%s]",
+            sum(1 for c in all_chats if _is_group(c)), session_name,
+        )
+    else:
+        dm_chats = [c for c in all_chats if not _is_group(c)]
+        report.chats_skipped_groups = len(all_chats) - len(dm_chats)
+        logger.info(
+            "build_batch: %d groups excluded (isGroup=True or @g.us suffix) "
+            "[session=%s] — set WAHA_INCLUDE_GROUPS=true to include them",
+            report.chats_skipped_groups, session_name,
+        )
 
     # Archived chats: customer/business intentionally hid them — do not analyse.
     # Muted chats ARE kept (flagged with wa_is_muted=True so health-score
@@ -161,6 +196,29 @@ async def build_batch_from_waha(
     effective_max = max_chats if max_chats is not None else settings.waha_max_chats
     if effective_max > 0:
         visible_chats = visible_chats[:effective_max]
+
+    # ── Pre-filter by chat.timestamp (KEY OPTIMIZATION) ───────────────────────
+    # Each WahaChatOverview carries the timestamp of its last message.
+    # If that timestamp predates our lookback window we KNOW there are zero
+    # messages to fetch — skip the API call entirely.
+    # Without this, we'd make ~80 message-fetch calls for vale_test just to
+    # get 0 results back (verified by debug_chat_fetch.py output).
+    chats_to_fetch: list[WahaChatOverview] = []
+    chats_skipped_date = 0
+    for chat in visible_chats:
+        last_ts = chat.timestamp or 0          # epoch seconds of last message
+        if last_ts > 0 and last_ts < since_ts:
+            chats_skipped_date += 1
+        else:
+            # last_ts == 0 means no timestamp available → fetch anyway to be safe
+            chats_to_fetch.append(chat)
+
+    if chats_skipped_date:
+        logger.info(
+            "build_batch: pre-filter skipped %d DM chats with last activity "
+            "before %s — no message fetch needed [session=%s]",
+            chats_skipped_date, since_datetime.date(), session_name,
+        )
 
     sem = asyncio.Semaphore(_WAHA_FETCH_CONCURRENCY)
 
@@ -189,29 +247,35 @@ async def build_batch_from_waha(
                     offset += page_size
                     await asyncio.sleep(_PAUSE_BETWEEN_PAGES)
             except httpx.ReadTimeout:
-                logger.warning("ReadTimeout fetching messages for chat %s — skipping", chat_phone)
+                logger.warning(
+                    "ReadTimeout fetching messages for chat %s — skipping", chat_phone)
                 return None, {"warnings": [f"Chat {chat_phone}: skipped due to ReadTimeout"], "confidence_penalty": 0.8, "messages": 0, "skipped_system": 0}
             except Exception as exc:
-                logger.warning("Error fetching messages for chat %s: %s — skipping", chat_phone, exc)
+                logger.warning(
+                    "Error fetching messages for chat %s: %s — skipping", chat_phone, exc)
                 return None, {"warnings": [f"Chat {chat_phone}: skipped due to error ({type(exc).__name__})"], "confidence_penalty": None, "messages": 0, "skipped_system": 0}
 
         norm_messages: list[NormalizedMessage] = []
         skipped_system = 0
         for raw_msg in all_messages:
-            nm = _waha_msg_to_normalized(raw_msg, chat_phone, chat_name, me_phone)
+            nm = _waha_msg_to_normalized(
+                raw_msg, chat_phone, chat_name, me_phone)
             if nm is None:
                 skipped_system += 1
             else:
                 norm_messages.append(nm)
 
-        partial = {"warnings": [], "confidence_penalty": None, "messages": len(all_messages), "skipped_system": skipped_system}
+        partial = {"warnings": [], "confidence_penalty": None, "messages": len(
+            all_messages), "skipped_system": skipped_system}
 
         if not norm_messages:
             return None, partial
 
-        outbound = sum(1 for m in norm_messages if m.direction == MessageDirection.OUTBOUND)
+        outbound = sum(1 for m in norm_messages if m.direction ==
+                       MessageDirection.OUTBOUND)
         if outbound == 0:
-            partial["warnings"].append(f"Chat {chat_phone}: no outbound messages — business never replied")
+            partial["warnings"].append(
+                f"Chat {chat_phone}: no outbound messages — business never replied")
             # NOT a confidence penalty: this is precisely the "sin responder" signal we want.
 
         # Capture chat-level metadata directly from WAHA so downstream
@@ -219,10 +283,24 @@ async def build_batch_from_waha(
         last_activity_ts: Optional[datetime] = None
         last_msg_from_me: Optional[bool] = None
         if chat.lastMessage and chat.lastMessage.timestamp:
-            last_activity_ts = datetime.fromtimestamp(chat.lastMessage.timestamp, tz=timezone.utc)
+            last_activity_ts = datetime.fromtimestamp(
+                chat.lastMessage.timestamp, tz=timezone.utc)
             last_msg_from_me = bool(chat.lastMessage.fromMe)
         elif chat.timestamp:
-            last_activity_ts = datetime.fromtimestamp(chat.timestamp, tz=timezone.utc)
+            last_activity_ts = datetime.fromtimestamp(
+                chat.timestamp, tz=timezone.utc)
+
+        # ── Layer-1 new-client check (runs for ALL chats) ────────────────────
+        # One lightweight API call per chat: does WAHA hold ANY message for this
+        # contact that predates our analysis window?
+        #   has_prior = True  → confirmed returning client
+        #   has_prior = False → no prior history found → probably new (AI confirms)
+        # The call returns at most 1 message so it is always fast regardless of
+        # how many messages the chat has in the current window.
+        has_prior = await waha_client.has_messages_before(
+            session_name, chat.id, since_ts
+        )
+        wa_is_new_client = not has_prior  # True=no prior → new; False=prior → returning
 
         conv = NormalizedConversation(
             contact_phone=chat_phone,
@@ -236,10 +314,11 @@ async def build_batch_from_waha(
             wa_is_pinned=chat.pinned,
             wa_last_activity_ts=last_activity_ts,
             wa_last_message_from_me=last_msg_from_me,
+            wa_is_new_client=wa_is_new_client,
         )
         return conv, partial
 
-    chat_results = await asyncio.gather(*[_fetch_one_chat(c) for c in visible_chats])
+    chat_results = await asyncio.gather(*[_fetch_one_chat(c) for c in chats_to_fetch])
 
     final_conversations: list[NormalizedConversation] = []
 
@@ -248,7 +327,8 @@ async def build_batch_from_waha(
         report.messages_skipped_system += partial.get("skipped_system", 0)
         report.warnings.extend(partial.get("warnings", []))
         if partial.get("confidence_penalty"):
-            report.confidence_score = min(report.confidence_score, partial["confidence_penalty"])
+            report.confidence_score = min(
+                report.confidence_score, partial["confidence_penalty"])
 
         if conv is None:
             continue

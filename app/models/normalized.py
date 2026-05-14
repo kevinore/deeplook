@@ -62,6 +62,11 @@ class NormalizedConversation(BaseModel):
     # Last message direction at sync time (from chat overview's lastMessage.fromMe).
     # Useful as a cross-check against our own is_unanswered() computation.
     wa_last_message_from_me: bool | None = None
+    # Deterministic new-client flag set by waha_parser via pre-window message check.
+    # True  = no messages found before analysis window → probably new client.
+    # False = WAHA has messages before the window → confirmed returning client.
+    # None  = txt upload or check was skipped (API error, etc.) → AI decides.
+    wa_is_new_client: bool | None = None
 
 
 class NormalizedBatch(BaseModel):

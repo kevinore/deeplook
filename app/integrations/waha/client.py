@@ -168,6 +168,34 @@ class WahaClient:
         )
         return None
 
+    async def has_messages_before(self, session_name: str, chat_id: str, before_ts: int) -> bool:
+        """
+        Return True if the chat has ANY message with timestamp < before_ts.
+
+        Used as the deterministic Layer-1 check for new-vs-returning clients:
+        if WAHA holds messages older than the analysis window, the client has
+        a prior relationship with the business regardless of DB history.
+
+        Returns False on any API error (conservative: unknown → AI decides).
+        """
+        try:
+            r = await self._client.get(
+                f"/api/{session_name}/chats/{chat_id}/messages",
+                params={
+                    "limit": 1,
+                    "filter.timestamp.lte": before_ts - 1,
+                    "downloadMedia": False,
+                    "merge": True,
+                },
+            )
+            if r.status_code == 404:
+                return False
+            self._check(r)
+            data = self._json(r)
+            return isinstance(data, list) and len(data) > 0
+        except Exception:
+            return False  # unknown → let AI classify
+
     async def list_chats(self, name: str, limit: int = 1000, offset: int = 0) -> list[WahaChatOverview]:
         r = await self._client.get(
             f"/api/{name}/chats",

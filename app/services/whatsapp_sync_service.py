@@ -26,10 +26,10 @@ from app.repositories.whatsapp_connection_repo import WhatsAppConnectionReposito
 logger = logging.getLogger(__name__)
 
 _LOOKBACK_BY_PLAN: dict[str, int] = {
-    "basic": 30,
-    "plus": 90,
-    "enterprise": 180,
-    "free": 30,
+    "basic": 32,    # 30 días del mes + 2 días de buffer para no perder chats en el borde
+    "plus": 92,
+    "enterprise": 182,
+    "free": 32,
 }
 
 # Max chats (contacts) fetched per sync. Slightly above conversations_per_report

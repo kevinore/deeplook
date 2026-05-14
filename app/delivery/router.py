@@ -99,6 +99,19 @@ async def download_report(
             wa_unread_count=getattr(a, "wa_unread_count", None),
             wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
             wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
+            client_relationship=getattr(a, "client_relationship", None),
+            client_relationship_source=getattr(a, "client_relationship_source", None),
+            client_relationship_signals=getattr(a, "client_relationship_signals", None) or [],
+            has_purchase_intent=bool(getattr(a, "has_purchase_intent", False)),
+            intent_stage=getattr(a, "intent_stage", None),
+            intent_first_at=getattr(a, "intent_first_at", None),
+            quote_requested_at=getattr(a, "quote_requested_at", None),
+            quote_sent_at=getattr(a, "quote_sent_at", None),
+            quote_response_time_seconds=getattr(a, "quote_response_time_seconds", None),
+            post_quote_followup_count=getattr(a, "post_quote_followup_count", None),
+            followup_delay_hours=getattr(a, "followup_delay_hours", None),
+            lost_reason=getattr(a, "lost_reason", None),
+            lost_reason_detail=getattr(a, "lost_reason_detail", None),
         )
         for (a, conv, contact) in rows
     ]
@@ -155,6 +168,53 @@ async def download_report(
         except Exception:
             logger.warning("Could not load previous job for comparison (job=%s)", job_id, exc_info=True)
 
+        # AI pre-generation: health eval + action plan (Option B: at download time)
+        import statistics as _stats
+        from app.analytics.ai.factory import create_provider as _create_provider
+        from app.analytics.insights.health_score import calculate_health_score as _calc_health
+
+        _frt = [r.first_response_time_seconds for r in results if r.first_response_time_seconds is not None]
+        _rt  = [r.avg_response_time_seconds for r in results if r.avg_response_time_seconds is not None]
+        _med_frt = _stats.median(_frt) if _frt else None
+        _avg_rt  = _stats.mean(_rt)  if _rt  else None
+
+        ai_health_adjustments: dict = {}
+        ai_action_plan: list[dict] = []
+        try:
+            _provider = _create_provider()
+            # Layer 2: contextual health evaluation
+            from app.analytics.insights.health_score_orchestrator import evaluate_health_context
+            _base_health = _calc_health(results, first_response_time_seconds=_med_frt, avg_response_time_seconds=_avg_rt)
+            ai_health_adjustments, _hcost, _htin, _htout = await evaluate_health_context(
+                results=results,
+                ai_provider=_provider,
+                business_name=business_name,
+                business_type=client.business_type if client else None,
+                first_response_time_seconds=_med_frt,
+                avg_response_time_seconds=_avg_rt,
+            )
+            _health_final = _calc_health(results, first_response_time_seconds=_med_frt, avg_response_time_seconds=_avg_rt, health_adjustments=ai_health_adjustments)
+            # Action plan
+            from app.analytics.insights.action_plan_orchestrator import generate_action_plan
+            ai_action_plan, _apcost, _aptin, _aptout = await generate_action_plan(
+                results=results,
+                ai_provider=_provider,
+                business_name=business_name,
+                business_type=client.business_type if client else None,
+                health_score=_health_final,
+            )
+            # Sumar costos de health eval + action plan al total del job
+            _report_tin = _htin + _aptin
+            _report_tout = _htout + _aptout
+            _report_cost = _hcost + _apcost
+            if _report_tin or _report_tout or _report_cost:
+                from app.repositories.analysis_repo import AnalysisJobRepository as _JR
+                _jr = _JR(db)
+                await _jr.add_token_usage(str(job_id), _report_tin, _report_tout, _report_cost)
+                await db.commit()
+        except Exception:
+            logger.warning("AI pre-generation failed — using deterministic fallbacks", exc_info=True)
+
         pdf_bytes = generate_pdf_report(
             results=results,
             business_name=business_name,
@@ -165,6 +225,8 @@ async def download_report(
             account_name=account_name,
             previous_results=previous_results,
             previous_job_created_at=previous_job_created_at,
+            action_plan=ai_action_plan or None,
+            health_adjustments=ai_health_adjustments or None,
         )
     except Exception as exc:
         logger.exception("PDF generation failed for job %s", job_id)

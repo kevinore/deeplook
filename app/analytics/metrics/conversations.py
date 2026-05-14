@@ -5,6 +5,30 @@ from app.analytics.metrics import ack_metrics, activity, response_time, volume
 from app.models.normalized import NormalizedConversation
 
 
+def _unanswered_count(conv: NormalizedConversation) -> int:
+    """
+    Deterministic unanswered flag (0 or 1) for one conversation.
+
+    Uses WAHA's chat-level `wa_last_message_from_me` as the primary truth
+    when available — it reflects the ACTUAL last message in the full
+    conversation history regardless of our message-fetch window:
+
+      wa_last_message_from_me = True  → business replied last → 0 (answered)
+      wa_last_message_from_me = False → client replied last   → apply closing-
+                                        acknowledgment filter on local messages
+      wa_last_message_from_me = None  → txt upload or no metadata → fall back
+                                        to pure local message analysis
+
+    This prevents false positives where the business replied outside our
+    30-day lookback window but our local messages show the client wrote last.
+    """
+    if conv.wa_last_message_from_me is True:
+        return 0   # WAHA confirms business sent the most recent message
+    # For False or None, use the local message-based calculation which
+    # applies the closing-acknowledgment filter (gracias / ok / pure-emoji).
+    return response_time.unanswered_count(conv.messages)
+
+
 def conversation_stats(conv: NormalizedConversation) -> dict:
     """
     Build the deterministic stats dict for one conversation.
@@ -29,9 +53,9 @@ def conversation_stats(conv: NormalizedConversation) -> dict:
         "median_response_time_seconds": response_time.median(msgs),
         "p95_response_time_seconds": response_time.percentile_95(msgs),
         "max_response_time_seconds": response_time.max_response_time(msgs),
-        "unanswered_count": response_time.unanswered_count(msgs),
+        "unanswered_count": _unanswered_count(conv),
         "trailing_inbound_messages": response_time.trailing_inbound_messages(msgs),
-        "is_unanswered": response_time.is_unanswered(msgs),
+        "is_unanswered": _unanswered_count(conv) > 0,
         "response_time_by_hour": response_time.by_hour(msgs),
         "duration_minutes": activity.conversation_duration_minutes(msgs),
         "first_message_at": activity.first_message_time(msgs),

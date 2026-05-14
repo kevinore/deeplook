@@ -28,6 +28,138 @@ from app.delivery.reports.chart_generator import (
 from app.models.enums import ConversionStatus, Sentiment
 from app.models.schemas import ConversationAnalysisResult
 
+
+def build_client_frt_segments(results: list[ConversationAnalysisResult]) -> dict:
+    """
+    Compute new-vs-returning client FRT segment metrics.
+
+    Excludes conversations with unanswered_count == 1 from FRT values and counts
+    so the numerator is consistent with bucket_frt_distribution: a conversation
+    that had a first response (FRT != null) but is currently unanswered belongs in
+    the 'no_reply' bucket, not in the 'responded' count.
+    """
+    # Only conversations that were fully responded to (not currently awaiting a reply)
+    new_frt_vals = [
+        r.first_response_time_seconds for r in results
+        if r.client_relationship == "new"
+        and r.first_response_time_seconds is not None
+        and r.unanswered_count != 1
+    ]
+    ret_frt_vals = [
+        r.first_response_time_seconds for r in results
+        if r.client_relationship == "returning"
+        and r.first_response_time_seconds is not None
+        and r.unanswered_count != 1
+    ]
+
+    new_client_count = sum(1 for r in results if r.client_relationship == "new")
+    returning_client_count = sum(1 for r in results if r.client_relationship == "returning")
+    # Denominator: all new/returning clients who sent at least one inbound message,
+    # including those that were never answered — the ratio shows true coverage.
+    new_client_inbound_count = sum(
+        1 for r in results if r.client_relationship == "new" and r.inbound_count > 0
+    )
+    returning_client_inbound_count = sum(
+        1 for r in results if r.client_relationship == "returning" and r.inbound_count > 0
+    )
+    new_client_frt_count = len(new_frt_vals)
+    returning_client_frt_count = len(ret_frt_vals)
+    median_frt_new = statistics.median(new_frt_vals) if new_frt_vals else None
+    median_frt_ret = statistics.median(ret_frt_vals) if ret_frt_vals else None
+
+    frt_multiplier: float | None = None
+    if median_frt_new and median_frt_ret and median_frt_ret > 0:
+        frt_multiplier = round(median_frt_new / median_frt_ret, 1)
+
+    frt_segment_insight: str | None = None
+    if median_frt_new is not None:
+        if frt_multiplier is None:
+            frt_segment_insight = (
+                f"Con tus {new_client_count} cliente{'s' if new_client_count != 1 else ''} "
+                f"nuevo{'s' if new_client_count != 1 else ''} tardas en promedio "
+                f"{_fmt_seconds(median_frt_new)} en responder."
+            )
+        elif frt_multiplier >= 3.0:
+            frt_segment_insight = (
+                f"Con clientes nuevos tardas {frt_multiplier}x más que con habituales — "
+                f"la primera impresión es donde más se pierden ventas."
+            )
+        elif frt_multiplier >= 1.5:
+            frt_segment_insight = (
+                f"Con clientes nuevos tardas {frt_multiplier}x más que con habituales — "
+                f"hay oportunidad de mejorar la primera impresión."
+            )
+        else:
+            frt_segment_insight = (
+                f"Respondes a velocidades similares a clientes nuevos y habituales — "
+                f"buena consistencia en primera impresión."
+            )
+
+    return {
+        "new_client_count": new_client_count,
+        "returning_client_count": returning_client_count,
+        "new_client_inbound_count": new_client_inbound_count,
+        "returning_client_inbound_count": returning_client_inbound_count,
+        "new_client_frt_count": new_client_frt_count,
+        "returning_client_frt_count": returning_client_frt_count,
+        "median_frt_new_clients": median_frt_new,
+        "median_frt_returning_clients": median_frt_ret,
+        "frt_multiplier": frt_multiplier,
+        "frt_segment_insight": frt_segment_insight,
+    }
+
+
+def bucket_frt_distribution(
+    results: list[ConversationAnalysisResult],
+) -> tuple[dict[str, int], int]:
+    """
+    Classify each conversation into a first-response-time bucket.
+
+    Returns (buckets_dict, frt_null_answered_count) where:
+    - buckets_dict keys: lt_5min, 5_to_30min, 30min_to_2h, gt_2h, no_reply
+    - frt_null_answered_count: inbound>0, FRT=null, unanswered=0 (handled outside window)
+    """
+    buckets: dict[str, int] = {
+        "lt_5min": 0,
+        "5_to_30min": 0,
+        "30min_to_2h": 0,
+        "gt_2h": 0,
+        "no_reply": 0,
+    }
+    excluded = 0
+    for r in results:
+        if r.inbound_count == 0:
+            continue
+        if r.unanswered_count == 1:
+            buckets["no_reply"] += 1
+        elif r.first_response_time_seconds is None:
+            excluded += 1
+        else:
+            sec = r.first_response_time_seconds
+            if sec < 300:
+                buckets["lt_5min"] += 1
+            elif sec < 1800:
+                buckets["5_to_30min"] += 1
+            elif sec < 7200:
+                buckets["30min_to_2h"] += 1
+            else:
+                buckets["gt_2h"] += 1
+    return buckets, excluded
+
+
+def effective_quote_response_time(r: ConversationAnalysisResult) -> int | None:
+    """
+    Return the quote response time for a conversation.
+    Prefers the stored value; falls back to (quote_sent_at − intent_first_at)
+    for rows analyzed before the fallback was added to finalize_funnel.
+    """
+    if r.quote_response_time_seconds is not None and r.quote_response_time_seconds >= 0:
+        return r.quote_response_time_seconds
+    if r.quote_sent_at and r.intent_first_at:
+        delta = int((r.quote_sent_at - r.intent_first_at).total_seconds())
+        return delta if delta >= 0 else None
+    return None
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -52,6 +184,45 @@ _DEFAULT_ATV_BY_TYPE: dict[str, float] = {
     "gimnasio": 80_000,
     "gym": 80_000,
 }
+
+
+def _build_qrt_distribution(qrt_vals: list[int]) -> list[dict]:
+    """Bucket quote-response-time values into display ranges."""
+    total = len(qrt_vals) or 1
+    buckets = [
+        ("<30 min",   0,      1800,        "green"),
+        ("30 min–2h", 1800,   7200,        "amber"),
+        ("2h–8h",     7200,   28800,       "red"),
+        ("8h–24h",    28800,  86400,       "red"),
+        (">24h",      86400,  float("inf"),"red"),
+    ]
+    result = []
+    for label, lo, hi, color in buckets:
+        count = sum(1 for v in qrt_vals if lo <= v < hi)
+        result.append({
+            "label": label, "count": count,
+            "pct": round(count / total * 100, 1), "color": color,
+        })
+    return result
+
+
+def _build_followup_delay_distribution(delay_vals: list[float]) -> list[dict]:
+    """Bucket first-followup-delay values (in hours) into display ranges."""
+    total = len(delay_vals) or 1
+    buckets = [
+        ("<6 h",     0,   6,           "green"),
+        ("6h–24h",   6,   24,          "amber"),
+        ("1–3 días", 24,  72,          "red"),
+        (">3 días",  72,  float("inf"),"red"),
+    ]
+    result = []
+    for label, lo, hi, color in buckets:
+        count = sum(1 for v in delay_vals if lo <= v < hi)
+        result.append({
+            "label": label, "count": count,
+            "pct": round(count / total * 100, 1), "color": color,
+        })
+    return result
 
 
 def _fmt_seconds(seconds: float | None) -> str:
@@ -366,7 +537,7 @@ def _build_action_plan(
                     "Simplifica el proceso: pide solo nombre + fecha de cita en el primer mensaje",
                     "Ofrece agendar la cita directamente en el primer mensaje de respuesta",
                 ],
-                "impact": f"Pasar del {conversion_rate}% al 25% de conversión puede duplicar tus ventas desde WhatsApp.",
+                "impact": f"Llevar tu conversión del {conversion_rate}% al 40% puede duplicar tus ventas desde WhatsApp.",
             })
 
         elif key == "sentimiento":
@@ -438,6 +609,8 @@ def generate_pdf_report(
     account_name: str | None = None,
     previous_results: list[ConversationAnalysisResult] | None = None,
     previous_job_created_at: datetime | None = None,
+    action_plan: list[dict] | None = None,  # pre-built AI action plan; falls back to rule-based if None
+    health_adjustments: dict | None = None,  # AI semantic adjustment for sentiment/quality components
 ) -> bytes:
     """
     Generate a PDF report from analysis results.
@@ -476,10 +649,23 @@ def generate_pdf_report(
         _latest_per_chat[key] = r  # ascending order → last assignment is latest
     total_unanswered = sum(1 for r in _latest_per_chat.values() if r.unanswered_count)
 
-    # First response times
+    # First response times — overall (all chats, no exclusions)
     frt_values = [r.first_response_time_seconds for r in results if r.first_response_time_seconds is not None]
     avg_first_rt = statistics.mean(frt_values) if frt_values else None
     median_first_rt = statistics.median(frt_values) if frt_values else None
+
+    # ── FRT segmented by client relationship (100% deterministic — timestamp math) ──
+    _seg = build_client_frt_segments(results)
+    new_client_count               = _seg["new_client_count"]
+    returning_client_count         = _seg["returning_client_count"]
+    new_client_inbound_count       = _seg["new_client_inbound_count"]
+    returning_client_inbound_count = _seg["returning_client_inbound_count"]
+    new_client_frt_count           = _seg["new_client_frt_count"]
+    returning_client_frt_count     = _seg["returning_client_frt_count"]
+    median_frt_new_clients         = _seg["median_frt_new_clients"]
+    median_frt_returning_clients   = _seg["median_frt_returning_clients"]
+    frt_multiplier                 = _seg["frt_multiplier"]
+    frt_segment_insight            = _seg["frt_segment_insight"]
 
     # Avg response times — ALL exchanges (not just first response)
     rt_values = [r.avg_response_time_seconds for r in results if r.avg_response_time_seconds is not None]
@@ -497,29 +683,8 @@ def generate_pdf_report(
     med_values = [r.median_response_time_seconds for r in results if r.median_response_time_seconds is not None]
     typical_rt = statistics.median(med_values) if med_values else median_rt
 
-    # F3: First-response-time bucketing — communicates DISTRIBUTION, not just average.
-    # An average of "14 min" can hide either "everyone in 14 min" or
-    # "half in 1 min, half in 30 min". The histogram makes the truth visible.
-    frt_buckets = {
-        "lt_5min": 0,      # <5 min  — Excelente
-        "5_to_30min": 0,   # 5–30 min — Aceptable
-        "30min_to_2h": 0,  # 30 min–2 h — Demora visible
-        "gt_2h": 0,        # >2 h    — Muy demorado
-        "no_reply": 0,     # nunca respondió
-    }
-    for r in results:
-        if r.first_response_time_seconds is None:
-            frt_buckets["no_reply"] += 1
-        else:
-            sec = r.first_response_time_seconds
-            if sec < 300:
-                frt_buckets["lt_5min"] += 1
-            elif sec < 1800:
-                frt_buckets["5_to_30min"] += 1
-            elif sec < 7200:
-                frt_buckets["30min_to_2h"] += 1
-            else:
-                frt_buckets["gt_2h"] += 1
+    # F3: First-response-time bucketing
+    frt_buckets, frt_null_answered_count = bucket_frt_distribution(results)
     frt_bucket_total = sum(frt_buckets.values()) or 1
     frt_distribution = [
         {"key": k, "label": label, "count": frt_buckets[k],
@@ -542,7 +707,15 @@ def generate_pdf_report(
     avg_delivery_rate = round(sum(delivery_values) / len(delivery_values), 1) if delivery_values else None
     avg_read_rate = round(sum(read_values) / len(read_values), 1) if read_values else None
     ghosted_count = sum(1 for r in results if r.is_ghosted)
-    op_cov_values = [r.operational_coverage_score for r in results if r.operational_coverage_score is not None]
+    # Operational coverage — exclude unanswered conversations from the average.
+    # Unanswered chats already drive down "Cobertura de respuestas" (10%) and
+    # "Calidad" (20%). Including them here causes triple-penalization for the
+    # same event. This metric should only answer: "when we DID respond, was it
+    # within 1h during business hours?"
+    op_cov_values = [
+        r.operational_coverage_score for r in results
+        if r.operational_coverage_score is not None and r.unanswered_count == 0
+    ]
     avg_operational_coverage = round(sum(op_cov_values) / len(op_cov_values), 1) if op_cov_values else None
     ooh_values = [r.out_of_hours_inbound_pct for r in results if r.out_of_hours_inbound_pct is not None]
     avg_out_of_hours_pct = round(sum(ooh_values) / len(ooh_values), 1) if ooh_values else None
@@ -574,6 +747,161 @@ def generate_pdf_report(
         # Stable sort: count DESC, reason text ASC to break ties deterministically
         lost_reasons_summary = sorted(reason_counts.items(), key=lambda x: (-x[1], x[0]))[:5]
 
+    # ── Commercial Proposal Funnel aggregates ──────────────────────────────────
+    intent_convs = [r for r in results if r.has_purchase_intent]
+    intent_count = len(intent_convs)
+    has_funnel_data = intent_count > 0
+
+    funnel_converted_count = sum(1 for r in intent_convs if r.intent_stage == "converted")
+    funnel_lost_count = sum(1 for r in intent_convs if r.intent_stage == "lost")
+    funnel_pending_count = sum(1 for r in intent_convs if r.intent_stage == "pending")
+    funnel_conversion_rate = (
+        round(funnel_converted_count / intent_count * 100) if intent_count else 0
+    )
+
+    # Stage distribution (for table display)
+    _stage_cntr: Counter = Counter(
+        r.intent_stage for r in intent_convs if r.intent_stage and r.intent_stage != "none"
+    )
+    funnel_stage_counts = sorted(_stage_cntr.items(), key=lambda x: (-x[1], x[0]))
+
+    qrt_values = [v for r in intent_convs if (v := effective_quote_response_time(r)) is not None]
+    median_quote_rt = statistics.median(qrt_values) if qrt_values else None
+    avg_quote_rt = statistics.mean(qrt_values) if qrt_values else None
+
+    # Follow-up stats
+    quoted_convs = [r for r in intent_convs if r.quote_sent_at is not None]
+    with_followup = [r for r in quoted_convs if (r.post_quote_followup_count or 0) > 0]
+    followup_pct = round(len(with_followup) / len(quoted_convs) * 100) if quoted_convs else 0
+    followup_delay_vals = [
+        r.followup_delay_hours for r in with_followup if r.followup_delay_hours is not None
+    ]
+    median_followup_delay_hours = (
+        round(statistics.median(followup_delay_vals), 1) if followup_delay_vals else None
+    )
+
+    # Lost reason breakdown
+    funnel_lost_convs = [r for r in intent_convs if r.intent_stage == "lost"]
+    _lr_cntr: Counter = Counter(
+        r.lost_reason for r in funnel_lost_convs if r.lost_reason
+    )
+    funnel_lost_reasons = sorted(_lr_cntr.items(), key=lambda x: (-x[1], x[0]))[:5]
+
+    # Per-conversation lost detail cards (for small samples and inline detail in large ones)
+    _lost_reason_labels = {
+        "price": "Precio alto o desfavorable",
+        "competition": "Fue con la competencia",
+        "timing": "No era el momento",
+        "no_reply": "No respondió la cotización (post-seguimiento)",
+        "changed_mind": "Cambió de opinión",
+        "other": "Otro motivo",
+    }
+    funnel_lost_details: list[dict] = []
+    for _r in funnel_lost_convs:
+        _ref_parts: list[str] = []
+        if _r.contact_name and _r.contact_name.strip():
+            _ref_parts.append(_r.contact_name.strip())
+        elif _r.contact_phone:
+            _tail = _r.contact_phone[-4:] if len(_r.contact_phone) >= 4 else _r.contact_phone
+            _ref_parts.append(f"···{_tail}")
+        if _r.started_at:
+            try:
+                _ref_parts.append(_r.started_at.strftime("%d %b"))
+            except Exception:
+                pass
+        funnel_lost_details.append({
+            "contact_ref": " · ".join(_ref_parts) if _ref_parts else None,
+            "reason_label": _lost_reason_labels.get(_r.lost_reason or "", _r.lost_reason or "Sin clasificar"),
+            "detail": _r.lost_reason_detail,
+        })
+
+    # Proactive quote count: quote sent but not explicitly requested
+    proactive_quote_count = sum(
+        1 for r in intent_convs if r.quote_sent_at and not r.quote_requested_at
+    )
+
+    # Conversations in intent funnel that are neither converted, lost, nor pending
+    funnel_other_count = (
+        intent_count - funnel_converted_count - funnel_lost_count - funnel_pending_count
+    )
+
+    # Funnel conversion status color
+    if not has_funnel_data or intent_count < 5:
+        funnel_status_color = "gray"
+    else:
+        funnel_status_color = _traffic_light(
+            funnel_conversion_rate, green_max=35, amber_max=15, higher_is_better=True
+        )
+
+    # ── Ciclo de compra: métricas adicionales ─────────────────────────────────
+
+    # Tasa de cotización: % con intención que recibió cotización (deterministic numerator)
+    quote_coverage_rate = round(len(quoted_convs) / intent_count * 100) if intent_count else None
+
+    # Tasa cotización → cierre: de los que recibieron cotización, cuántos compraron
+    funnel_converted_with_quote = sum(
+        1 for r in intent_convs if r.intent_stage == "converted" and r.quote_sent_at
+    )
+    quote_to_close_rate = (
+        round(funnel_converted_with_quote / len(quoted_convs) * 100) if quoted_convs else None
+    )
+    quote_to_close_color = _traffic_light(
+        quote_to_close_rate, green_max=35, amber_max=20, higher_is_better=True
+    ) if quote_to_close_rate is not None else "gray"
+
+    # Velocidad de cotización: ganados vs perdidos (mediana del QRT por resultado)
+    qrt_converted_vals = [
+        r.quote_response_time_seconds for r in intent_convs
+        if r.intent_stage == "converted" and r.quote_response_time_seconds
+    ]
+    qrt_lost_vals = [
+        r.quote_response_time_seconds for r in intent_convs
+        if r.intent_stage == "lost" and r.quote_response_time_seconds
+    ]
+    median_qrt_converted = statistics.median(qrt_converted_vals) if qrt_converted_vals else None
+    median_qrt_lost = statistics.median(qrt_lost_vals) if qrt_lost_vals else None
+    # Speed ratio: how much slower are lost deals vs won deals
+    qrt_speed_ratio: float | None = None
+    if median_qrt_converted and median_qrt_lost and median_qrt_converted > 0:
+        qrt_speed_ratio = round(median_qrt_lost / median_qrt_converted, 1)
+
+    # QRT distribution (buckets like FRT)
+    qrt_all_vals = [r.quote_response_time_seconds for r in intent_convs if r.quote_response_time_seconds]
+    qrt_distribution = _build_qrt_distribution(qrt_all_vals) if qrt_all_vals else []
+
+    # Followup delay distribution (hours from quote sent to first follow-up)
+    followup_delay_vals_all = [
+        r.followup_delay_hours for r in quoted_convs if r.followup_delay_hours is not None
+    ]
+    followup_delay_distribution = (
+        _build_followup_delay_distribution(followup_delay_vals_all)
+        if followup_delay_vals_all else []
+    )
+
+    # Average follow-up count: converted vs lost
+    fup_converted = [
+        r.post_quote_followup_count for r in intent_convs
+        if r.intent_stage == "converted" and r.post_quote_followup_count is not None
+    ]
+    fup_lost = [
+        r.post_quote_followup_count for r in intent_convs
+        if r.intent_stage == "lost" and r.post_quote_followup_count is not None
+    ]
+    avg_followup_converted = round(statistics.mean(fup_converted), 1) if fup_converted else None
+    avg_followup_lost = round(statistics.mean(fup_lost), 1) if fup_lost else None
+
+    # Lost by silence: % of lost conversations where client ghosted after follow-ups
+    lost_by_silence_count = sum(1 for r in funnel_lost_convs if r.lost_reason == "no_reply")
+    lost_by_silence_pct = (
+        round(lost_by_silence_count / funnel_lost_count * 100) if funnel_lost_count else None
+    )
+
+    # Show cycle metrics section only when there's enough data to be meaningful
+    has_cycle_metrics = bool(
+        qrt_all_vals or followup_delay_vals_all or
+        (median_qrt_converted and median_qrt_lost)
+    )
+
     # Quality — overall (used for health score; includes 0s from unanswered convs)
     quality_results = [r for r in results if r.quality_score is not None]
     avg_quality = round(sum(r.quality_score for r in quality_results) / len(quality_results), 1) if quality_results else None
@@ -581,7 +909,16 @@ def generate_pdf_report(
     # Quality — answered conversations only (used for the chart and secondary display)
     # Unanswered conversations contribute 0/0/0 by AI rule, so excluding them shows
     # how the business actually communicates when it does respond.
-    answered_quality_results = [r for r in quality_results if r.unanswered_count == 0]
+    # "Answered quality" = business replied AND the AI gave a meaningful quality score (> 0).
+    # quality_score = 0 means the AI treated it as unanswered (already penalized in coverage).
+    # We also require both sides sent messages (real conversation, not one-sided).
+    answered_quality_results = [
+        r for r in quality_results
+        if r.outbound_count > 0
+        and r.inbound_count > 0
+        and r.quality_score is not None
+        and r.quality_score > 0
+    ]
     avg_quality_answered = (
         round(sum(r.quality_score for r in answered_quality_results) / len(answered_quality_results), 1)
         if answered_quality_results else None
@@ -606,6 +943,7 @@ def generate_pdf_report(
         results,
         first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
+        health_adjustments=health_adjustments,
     )
     health_explanation = explain_health_score(
         health,
@@ -638,7 +976,8 @@ def generate_pdf_report(
     avg_rt_status = _traffic_light(typical_rt, green_max=900, amber_max=3600)
     sentiment_status = _traffic_light(positive_pct, green_max=60, amber_max=40, higher_is_better=True)
     unanswered_status = "green" if total_unanswered == 0 else ("amber" if total_unanswered <= 3 else "red")
-    quality_status = _traffic_light(avg_quality, green_max=7, amber_max=5, higher_is_better=True)
+    # Use answered-only quality for traffic light — unanswered are already penalized in coverage
+    quality_status = _traffic_light(avg_quality_answered, green_max=7, amber_max=5, higher_is_better=True)
 
     # Conversion rate: gray when sample too small for reliable estimate
     small_sample_conversion = len(applicable) < MIN_RELIABLE_CONV
@@ -674,20 +1013,23 @@ def generate_pdf_report(
     # --- Charts ---
     # response_time_by_hour is stored with UTC hours; convert to Colombia time
     # (UTC-5) so chart labels show the correct local hour for the business.
-    # Use MEDIAN per bucket (not mean) to prevent a single outlier conversation
-    # from inflating an entire hour slot.  Require ≥ 2 samples — a single data
-    # point is not representative enough to show as an "average".
+    # Only include business hours (8 AM–6 PM) and exclude outliers > 2h —
+    # those represent out-of-hours messages that inflate the chart unfairly.
     _COL_OFFSET = -5
+    _BH_START, _BH_END = 8, 18        # Business hours: 8 AM–6 PM Colombia
+    _BH_OUTLIER_CAP_S = 7200          # 2 h — beyond this = likely off-hours message
     rt_by_hour_agg: dict[int, list[float]] = {}
     for r in results:
         if r.response_time_by_hour:
             for hour_str, avg_sec in r.response_time_by_hour.items():
                 h_col = (int(hour_str) + _COL_OFFSET) % 24
-                rt_by_hour_agg.setdefault(h_col, []).append(avg_sec)
+                if _BH_START <= h_col < _BH_END:
+                    rt_by_hour_agg.setdefault(h_col, []).append(avg_sec)
     by_hour_data: dict[int, float] = {
-        h: statistics.median(vals)
+        h: statistics.median(bh_vals)
         for h, vals in rt_by_hour_agg.items()
-        if len(vals) >= 2
+        if (bh_vals := [v for v in vals if v <= _BH_OUTLIER_CAP_S])
+        and len(bh_vals) >= 2
     }
 
     vol_by_hour_data: dict[int, int] = {}
@@ -695,16 +1037,27 @@ def generate_pdf_report(
     # When there's only one distinct topic, a single-bar chart adds no value.
     # Show a text callout instead. Use stable sort for deterministic topic selection.
     topic_counter = Counter(r.primary_topic for r in results if r.primary_topic)
+    _GENERIC_LABEL = "consulta general"
     single_topic_callout: str | None = None
-    if len(topic_counter) == 1 and total_conv > 0:
-        only_topic, only_count = sorted(topic_counter.items(), key=lambda x: (-x[1], x[0]))[0]
-        single_topic_callout = (
-            f"El {round(only_count / total_conv * 100)}% de tus conversaciones son sobre "
-            f"«{only_topic}»."
-        )
-        chart_topics = None
-    else:
-        chart_topics = topics_bar_chart(results)
+    generic_dominant: bool = False   # True when "Consulta General" > 60% — chart suppressed
+    chart_topics = None
+
+    if total_conv > 0:
+        _generic_count = sum(v for k, v in topic_counter.items() if k.lower().strip() == _GENERIC_LABEL)
+        _generic_pct = _generic_count / total_conv * 100
+
+        if _generic_pct > 60:
+            # Consulta General dominates — the chart adds no value; show questions instead
+            generic_dominant = True
+            chart_topics = None
+        elif len(topic_counter) == 1:
+            only_topic, only_count = sorted(topic_counter.items(), key=lambda x: (-x[1], x[0]))[0]
+            single_topic_callout = (
+                f"El {round(only_count / total_conv * 100)}% de tus conversaciones son sobre "
+                f"«{only_topic}»."
+            )
+        else:
+            chart_topics = topics_bar_chart(results)
 
     chart_sentiment = sentiment_donut_chart(results)
     # Chart uses answered-only results so bars reflect real communication quality
@@ -917,6 +1270,7 @@ def generate_pdf_report(
         results,
         first_response_time_seconds=median_first_rt,
         avg_response_time_seconds=avg_rt,
+        health_adjustments=health_adjustments,
     )
 
     # --- One-line summary ---
@@ -935,8 +1289,10 @@ def generate_pdf_report(
             "No es malo, pero hay oportunidad de construir más conexión."
         )
 
-    # --- Strategic 3 conversations ---
-    strategic_convs = _select_strategic_conversations(results)
+    # --- Strategic conversations (optional — off by default) ---
+    from app.config import settings as _settings
+    _show_featured = _settings.report_show_featured_conversations
+    strategic_convs = _select_strategic_conversations(results) if _show_featured else []
 
     # --- Conversion analysis text ---
     conversion_text = _conversion_analysis_text(conversion_rate, total_unanswered, avg_first_rt)
@@ -948,16 +1304,18 @@ def generate_pdf_report(
     operational_text = _operational_interpretation(business_hours_pct, msgs_per_conv, top_hour_num, by_hour_data)
 
     # --- Action plan ---
-    action_plan = _build_action_plan(
-        score_breakdown=score_breakdown,
-        health_score=health,
-        first_rt_str=_fmt_seconds(median_first_rt),
-        avg_first_rt=median_first_rt,
-        conversion_rate=conversion_rate,
-        total_unanswered=total_unanswered,
-        topic_counter=topic_counter,
-        results=results,
-    )
+    # Use AI-generated plan when provided; fall back to rule-based templates.
+    if not action_plan:
+        action_plan = _build_action_plan(
+            score_breakdown=score_breakdown,
+            health_score=health,
+            first_rt_str=_fmt_seconds(median_first_rt),
+            avg_first_rt=median_first_rt,
+            conversion_rate=conversion_rate,
+            total_unanswered=total_unanswered,
+            topic_counter=topic_counter,
+            results=results,
+        )
 
     # --- Report metadata ---
     report_version = "2.2"
@@ -1000,6 +1358,17 @@ def generate_pdf_report(
         "first_rt_str": _fmt_seconds(median_first_rt),
         "avg_first_rt_str": _fmt_seconds(avg_first_rt),
         "median_first_rt_str": _fmt_seconds(median_first_rt),
+        # FRT segmented by client type (additive — overall FRT unchanged)
+        "new_client_count": new_client_count,
+        "returning_client_count": returning_client_count,
+        "new_client_frt_count": new_client_frt_count,
+        "returning_client_frt_count": returning_client_frt_count,
+        "new_client_inbound_count": new_client_inbound_count,
+        "returning_client_inbound_count": returning_client_inbound_count,
+        "median_frt_new_clients_str": _fmt_seconds(median_frt_new_clients),
+        "median_frt_returning_clients_str": _fmt_seconds(median_frt_returning_clients),
+        "frt_multiplier": frt_multiplier,
+        "frt_segment_insight": frt_segment_insight,
         "avg_response_time_str": _fmt_seconds(typical_rt),   # headline: median of per-conv medians
         "raw_avg_rt_str": _fmt_seconds(avg_rt),             # table only: raw mean (incl. out-of-hours)
         "avg_rt_bh_str": _fmt_seconds(avg_rt_bh),
@@ -1057,6 +1426,7 @@ def generate_pdf_report(
         "chart_volume": chart_volume,
         # Topics
         "single_topic_callout": single_topic_callout,
+        "generic_dominant": generic_dominant,
         # Conversion context
         "all_applicable_pending": all_applicable_pending,
         "lost_reasons_summary": lost_reasons_summary,
@@ -1067,6 +1437,7 @@ def generate_pdf_report(
         # New v2.1 context
         "one_line_summary": one_line_summary,
         "score_breakdown": score_breakdown,
+        "health_adjustments": health_adjustments or {},
         "slowest_hour_text": slowest_hour_text,
         "fastest_hour_text": fastest_hour_text,
         "variability_text": variability_text,
@@ -1080,6 +1451,7 @@ def generate_pdf_report(
         "period_end": period_end,
         # F3 — first-response-time distribution
         "frt_distribution": frt_distribution,
+        "frt_null_answered_count": frt_null_answered_count,
         # WAHA-derived deterministic metrics
         "has_waha_metrics": has_waha_metrics,
         "avg_delivery_rate": avg_delivery_rate,
@@ -1089,6 +1461,37 @@ def generate_pdf_report(
         "avg_out_of_hours_pct": avg_out_of_hours_pct,
         # F1 — comparison with previous completed report
         "previous_comparison": previous_comparison,
+        # Commercial Proposal Funnel
+        "has_funnel_data": has_funnel_data,
+        "intent_count": intent_count,
+        "funnel_converted_count": funnel_converted_count,
+        "funnel_lost_count": funnel_lost_count,
+        "funnel_pending_count": funnel_pending_count,
+        "funnel_conversion_rate": funnel_conversion_rate,
+        "funnel_stage_counts": funnel_stage_counts,
+        "median_quote_rt_str": _fmt_seconds(median_quote_rt),
+        "avg_quote_rt_str": _fmt_seconds(avg_quote_rt),
+        "followup_pct": followup_pct,
+        "median_followup_delay_hours": median_followup_delay_hours,
+        "funnel_lost_reasons": funnel_lost_reasons,
+        "funnel_lost_details": funnel_lost_details,
+        "proactive_quote_count": proactive_quote_count,
+        "funnel_other_count": funnel_other_count,
+        "funnel_status_color": funnel_status_color,
+        "quoted_count": len(quoted_convs),
+        # Ciclo de compra — nuevas métricas
+        "quote_coverage_rate": quote_coverage_rate,
+        "quote_to_close_rate": quote_to_close_rate,
+        "quote_to_close_color": quote_to_close_color,
+        "median_qrt_converted_str": _fmt_seconds(median_qrt_converted),
+        "median_qrt_lost_str": _fmt_seconds(median_qrt_lost),
+        "qrt_speed_ratio": qrt_speed_ratio,
+        "qrt_distribution": qrt_distribution,
+        "followup_delay_distribution": followup_delay_distribution,
+        "avg_followup_converted": avg_followup_converted,
+        "avg_followup_lost": avg_followup_lost,
+        "lost_by_silence_pct": lost_by_silence_pct,
+        "has_cycle_metrics": has_cycle_metrics,
         # Brand logo (data URI; empty string if asset missing)
         "logo_data_uri": _LOGO_DATA_URI,
     }

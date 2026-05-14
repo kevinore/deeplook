@@ -137,9 +137,66 @@ async def regen(job_fragments: list[str]) -> None:
                     wa_unread_count=getattr(a, "wa_unread_count", None),
                     wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
                     wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
+                    client_relationship=getattr(a, "client_relationship", None),
+                    client_relationship_source=getattr(a, "client_relationship_source", None),
+                    client_relationship_signals=getattr(a, "client_relationship_signals", None) or [],
+                    has_purchase_intent=bool(getattr(a, "has_purchase_intent", False)),
+                    intent_stage=getattr(a, "intent_stage", None),
+                    intent_first_at=getattr(a, "intent_first_at", None),
+                    quote_requested_at=getattr(a, "quote_requested_at", None),
+                    quote_sent_at=getattr(a, "quote_sent_at", None),
+                    quote_response_time_seconds=getattr(a, "quote_response_time_seconds", None),
+                    post_quote_followup_count=getattr(a, "post_quote_followup_count", None),
+                    followup_delay_hours=getattr(a, "followup_delay_hours", None),
+                    lost_reason=getattr(a, "lost_reason", None),
+                    lost_reason_detail=getattr(a, "lost_reason_detail", None),
                 )
                 for (a, conv, contact) in rows
             ]
+
+            # --- AI calls: health evaluation + action plan ---
+            ai_health_adjustments: dict = {}
+            ai_action_plan: list = []
+            try:
+                from app.analytics.ai.factory import create_provider
+                from app.analytics.insights.health_score import calculate_health_score
+                from app.analytics.insights.health_score_orchestrator import evaluate_health_context
+                from app.analytics.insights.action_plan_orchestrator import generate_action_plan
+
+                _provider = create_provider()
+                frt_vals = [r.first_response_time_seconds for r in results if r.first_response_time_seconds is not None]
+                rt_vals  = [r.avg_response_time_seconds   for r in results if r.avg_response_time_seconds   is not None]
+                _med_frt = statistics.median(frt_vals) if frt_vals else None
+                _avg_rt  = statistics.mean(rt_vals)   if rt_vals  else None
+
+                base_health = calculate_health_score(results, first_response_time_seconds=_med_frt, avg_response_time_seconds=_avg_rt)
+
+                print(f"     → Calling AI: health evaluation...", end=" ", flush=True)
+                ai_health_adjustments, h_cost, h_tin, h_tout = await evaluate_health_context(
+                    results=results,
+                    ai_provider=_provider,
+                    business_name=client.business_name or client.name,
+                    business_type=client.business_type,
+                    first_response_time_seconds=_med_frt,
+                    avg_response_time_seconds=_avg_rt,
+                )
+                final_health = calculate_health_score(results, first_response_time_seconds=_med_frt, avg_response_time_seconds=_avg_rt, health_adjustments=ai_health_adjustments)
+                sent_adj = ai_health_adjustments.get("sentimiento_ajuste", 0)
+                qual_adj = ai_health_adjustments.get("calidad_ajuste", 0)
+                print(f"done (sent:{sent_adj:+d} qual:{qual_adj:+d} | {h_tin+h_tout} tokens ${h_cost:.4f})")
+
+                print(f"     → Calling AI: action plan...", end=" ", flush=True)
+                ai_action_plan, ap_cost, ap_tin, ap_tout = await generate_action_plan(
+                    results=results,
+                    ai_provider=_provider,
+                    business_name=client.business_name or client.name,
+                    business_type=client.business_type,
+                    health_score=final_health,
+                )
+                print(f"done ({len(ai_action_plan)} action cards | {ap_tin+ap_tout} tokens ${ap_cost:.4f})")
+
+            except Exception as e:
+                print(f"\n     [!] AI calls failed ({e}) — using deterministic fallbacks")
 
             pdf_bytes = generate_pdf_report(
                 results=results,
@@ -153,6 +210,8 @@ async def regen(job_fragments: list[str]) -> None:
                 account_name=account_name,
                 previous_results=None,
                 previous_job_created_at=None,
+                action_plan=ai_action_plan or None,
+                health_adjustments=ai_health_adjustments or None,
             )
 
             # Build filename same as the delivery router does
@@ -172,6 +231,6 @@ async def regen(job_fragments: list[str]) -> None:
 
 if __name__ == "__main__":
     fragments = sys.argv[1:] or DEFAULT_JOB_FRAGMENTS
-    print(f"Regenerating {len(fragments)} PDFs with updated logic (median-based scoring)...")
+    print(f"Regenerating {len(fragments)} PDFs with full AI pipeline (health eval + action plan)...")
     asyncio.run(regen(fragments))
     print("Done.")

@@ -135,6 +135,15 @@ def parse_ai_response(raw_content: str, conversation_id: str) -> ConversationAna
         # trust the recomputed average — the model likely averaged 4 dims.
         quality_score = round(avg_three, 1) if abs(clamped - avg_three) > 0.5 else round(clamped, 1)
 
+    # client_relationship — validated against allowed values
+    _CR_VALID = {"new", "returning", "internal", "uncertain"}
+    cr_raw = str(data.get("client_relationship") or "uncertain").lower().strip()
+    client_relationship = cr_raw if cr_raw in _CR_VALID else "uncertain"
+    cr_signals = [
+        str(s).strip() for s in (data.get("client_relationship_signals") or [])
+        if str(s).strip()
+    ][:3]  # cap at 3 signals
+
     return ConversationAnalysisResult(
         conversation_id=conversation_id,
         sentiment=sentiment,
@@ -149,4 +158,7 @@ def parse_ai_response(raw_content: str, conversation_id: str) -> ConversationAna
         summary=str(data.get("summary") or ""),
         key_points=[str(p) for p in (data.get("key_points") or [])],
         customer_questions=customer_questions,
+        client_relationship=client_relationship,
+        client_relationship_signals=cr_signals,
+        # client_relationship_source is set by engine.py after merging deterministic + AI
     )

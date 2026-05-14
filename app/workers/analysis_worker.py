@@ -158,6 +158,19 @@ async def run_analysis_job(
                             wa_unread_count=result.wa_unread_count,
                             wa_is_muted=result.wa_is_muted,
                             wa_is_archived=result.wa_is_archived,
+                            client_relationship=result.client_relationship,
+                            client_relationship_source=result.client_relationship_source,
+                            client_relationship_signals=result.client_relationship_signals or [],
+                            has_purchase_intent=result.has_purchase_intent,
+                            intent_stage=result.intent_stage,
+                            intent_first_at=result.intent_first_at,
+                            quote_requested_at=result.quote_requested_at,
+                            quote_sent_at=result.quote_sent_at,
+                            quote_response_time_seconds=result.quote_response_time_seconds,
+                            post_quote_followup_count=result.post_quote_followup_count,
+                            followup_delay_hours=result.followup_delay_hours,
+                            lost_reason=result.lost_reason,
+                            lost_reason_detail=result.lost_reason_detail,
                         )
                         await job_repo.increment_processed(job_id)
                         await job_repo.add_token_usage(job_id, result.tokens_input, result.tokens_output, result.analysis_cost_usd)
@@ -293,6 +306,19 @@ async def _send_report_email(job_id: str, client_id: str) -> None:
                     wa_is_muted=bool(getattr(a, "wa_is_muted", False)),
                     wa_is_archived=bool(getattr(a, "wa_is_archived", False)),
                     avg_response_time_bh_seconds=getattr(a, "avg_response_time_bh_seconds", None),
+                    client_relationship=getattr(a, "client_relationship", None),
+                    client_relationship_source=getattr(a, "client_relationship_source", None),
+                    client_relationship_signals=getattr(a, "client_relationship_signals", None) or [],
+                    has_purchase_intent=bool(getattr(a, "has_purchase_intent", False)),
+                    intent_stage=getattr(a, "intent_stage", None),
+                    intent_first_at=getattr(a, "intent_first_at", None),
+                    quote_requested_at=getattr(a, "quote_requested_at", None),
+                    quote_sent_at=getattr(a, "quote_sent_at", None),
+                    quote_response_time_seconds=getattr(a, "quote_response_time_seconds", None),
+                    post_quote_followup_count=getattr(a, "post_quote_followup_count", None),
+                    followup_delay_hours=getattr(a, "followup_delay_hours", None),
+                    lost_reason=getattr(a, "lost_reason", None),
+                    lost_reason_detail=getattr(a, "lost_reason_detail", None),
                 )
                 for (a, conv, contact) in rows
             ]
@@ -311,6 +337,43 @@ async def _send_report_email(job_id: str, client_id: str) -> None:
                 avg_response_time_seconds=avg_rt,
             )
 
+        # AI pre-generation: health eval + action plan
+        ai_health_adjustments: dict = {}
+        ai_action_plan: list[dict] = []
+        _health_float = float(health_score) if not hasattr(health_score, "total") else health_score.total
+        try:
+            from app.analytics.ai.factory import create_provider as _create_provider
+            from app.analytics.insights.health_score_orchestrator import evaluate_health_context as _eval_health
+            from app.analytics.insights.action_plan_orchestrator import generate_action_plan as _gen_plan
+            _provider = _create_provider()
+            ai_health_adjustments, _hcost, _htin, _htout = await _eval_health(
+                results=results,
+                ai_provider=_provider,
+                business_name=client.business_name,
+                business_type=client.business_type,
+            )
+            from app.analytics.insights.health_score import calculate_health_score as _calc_h
+            _health_final = _calc_h(results, first_response_time_seconds=median_frt, avg_response_time_seconds=avg_rt, health_adjustments=ai_health_adjustments)
+            ai_action_plan, _apcost, _aptin, _aptout = await _gen_plan(
+                results=results,
+                ai_provider=_provider,
+                business_name=client.business_name,
+                business_type=client.business_type,
+                health_score=_health_final,
+            )
+            # Sumar costos de health eval + action plan al total del job
+            _report_tin = _htin + _aptin
+            _report_tout = _htout + _aptout
+            _report_cost = _hcost + _apcost
+            if _report_tin or _report_tout or _report_cost:
+                async with async_session_factory() as _cost_session:
+                    from app.repositories.analysis_repo import AnalysisJobRepository as _JR2
+                    _jr2 = _JR2(_cost_session)
+                    await _jr2.add_token_usage(job_id, _report_tin, _report_tout, _report_cost)
+                    await _cost_session.commit()
+        except Exception:
+            logger.warning("AI pre-generation failed in email path — using fallbacks", exc_info=True)
+
         # Generate PDF outside the DB session (CPU-heavy, no DB needed).
         try:
             pdf_bytes = await asyncio.to_thread(
@@ -323,6 +386,8 @@ async def _send_report_email(job_id: str, client_id: str) -> None:
                 business_type=client.business_type,
                 previous_results=[],
                 previous_job_created_at=None,
+                action_plan=ai_action_plan or None,
+                health_adjustments=ai_health_adjustments or None,
             )
         except Exception:
             logger.exception("PDF generation failed for report email — sending without attachment")

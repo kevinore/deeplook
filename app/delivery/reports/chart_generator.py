@@ -44,12 +44,12 @@ _RT_ACCEPTABLE = 1800   # < 30 min → amber
 # ── Shared rcParams applied via plt.rc_context() in every function ────────────
 _CHART_STYLE: dict = {
     "font.family":      "sans-serif",
-    "font.size":        9.5,
-    "axes.titlesize":   9.5,      # chart titles same weight as body text in PDF
+    "font.size":        8.0,
+    "axes.titlesize":   8.5,
     "axes.titleweight": "bold",
-    "axes.labelsize":   9.0,
-    "xtick.labelsize":  8.5,
-    "ytick.labelsize":  8.5,
+    "axes.labelsize":   7.5,
+    "xtick.labelsize":  7.0,
+    "ytick.labelsize":  7.0,
     "figure.facecolor": "white",
     "axes.facecolor":   "white",
     "axes.edgecolor":   "#CCCCCC",
@@ -190,14 +190,10 @@ sentiment_pie_chart = sentiment_donut_chart
 
 def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
     """
-    Vertical bar chart of median response time by hour (Colombia local time).
+    Vertical bar chart of median response time by business hour (8 AM–6 PM).
 
-    Design decisions:
-    - Symlog Y-axis (linear 0–60 min, log above): keeps fast bars (5 min) and
-      slow bars (72 h) visible on the same chart without distortion.
-    - Y-axis ticks in human-readable format (5m, 15m, 1h, 4h, 24h…) instead of
-      raw minutes — consistent with the value labels on each bar.
-    - Bar value labels always shown in h/m adaptive format.
+    Data is pre-filtered to business hours and capped at 2h by pdf_generator,
+    so a simple linear scale is sufficient — no symlog needed.
     """
     if not by_hour:
         with plt.rc_context(_CHART_STYLE):
@@ -208,11 +204,10 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
             ax.axis("off")
             return _fig_to_base64(fig)
 
+    # Business hours only: Mañana (8–12) and Tarde (12–18)
     SEGMENTS = [
-        ("Mañana",  range(6, 12)),
+        ("Mañana",  range(8, 12)),
         ("Tarde",   range(12, 18)),
-        ("Noche",   range(18, 24)),
-        ("Madrugada", range(0, 6)),
     ]
 
     positions: list[float] = []
@@ -246,7 +241,7 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
     if not positions:
         with plt.rc_context(_CHART_STYLE):
             fig, ax = plt.subplots(figsize=(_W, _H), constrained_layout=True)
-            ax.text(0.5, 0.5, "Sin datos de tiempo de respuesta por hora",
+            ax.text(0.5, 0.5, "Sin datos en horario laboral (8 AM–6 PM)",
                     ha="center", va="center", transform=ax.transAxes, color=GRAY)
             ax.axis("off")
             return _fig_to_base64(fig)
@@ -255,18 +250,20 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
     n_bars = len(positions)
     fig_w = max(_W, 0.55 * n_bars + 1.5)
 
-    # Symlog threshold: linear scale up to 60 min (1 h), log above.
-    # This makes 5m bars and 72h bars both clearly visible.
-    LINTHRESH = 60.0
-
-    # Human-readable Y-axis tick marks (in minutes).
-    _YTICK_MIN  = [5, 15, 30, 60, 240, 480, 1440, 4320]  # 5m 15m 30m 1h 4h 8h 24h 72h
-    _YTICK_LBL  = ["5m", "15m", "30m", "1h", "4h", "8h", "24h", "72h"]
-    yticks = [v for v in _YTICK_MIN if v <= max_val_min * 1.5]
-    ylabels = [_YTICK_LBL[i] for i, v in enumerate(_YTICK_MIN) if v <= max_val_min * 1.5]
-    # Always include at least the first tick and one above the max bar
-    if not yticks:
-        yticks, ylabels = [_YTICK_MIN[0]], [_YTICK_LBL[0]]
+    # Linear Y-axis — data is pre-capped at 2h so range is manageable.
+    # Round up to nearest sensible ceiling: 30m, 1h, or 2h.
+    if max_val_min <= 30:
+        y_ceil = 30
+        yticks = [0, 5, 10, 15, 20, 30]
+        ylabels = ["0", "5m", "10m", "15m", "20m", "30m"]
+    elif max_val_min <= 60:
+        y_ceil = 65
+        yticks = [0, 5, 15, 30, 60]
+        ylabels = ["0", "5m", "15m", "30m", "1h"]
+    else:
+        y_ceil = 125
+        yticks = [0, 15, 30, 60, 90, 120]
+        ylabels = ["0", "15m", "30m", "1h", "1.5h", "2h"]
 
     with plt.rc_context(_CHART_STYLE):
         fig, ax = plt.subplots(figsize=(fig_w, 3.2))
@@ -274,37 +271,31 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
         ax.bar(positions, values_min, width=BAR_WIDTH,
                color=bar_colors, edgecolor="white", linewidth=0.8, zorder=2)
 
-        # Symlog scale keeps tiny and huge bars both visible.
-        ax.set_yscale("symlog", linthresh=LINTHRESH, linscale=0.5)
         ax.set_yticks(yticks)
         ax.set_yticklabels(ylabels, fontsize=8)
+        ax.set_ylim(0, y_ceil)
 
-        # Value labels above each bar — adaptive h/m format.
+        # Reference lines
+        ax.axhline(y=5,  color=TEAL,  linewidth=0.7, linestyle=":", alpha=0.6, zorder=1)
+        ax.axhline(y=30, color=AMBER, linewidth=0.7, linestyle=":", alpha=0.5, zorder=1)
+
+        # Value label above each bar
         for x, val in zip(positions, values_min):
             lbl = f"{val:.0f}m" if val < 60 else f"{val / 60:.1f}h"
-            # Place label just above the bar; on symlog axis use a small
-            # multiplicative offset so it stays above at any scale.
-            y_label = val * 1.25 if val >= LINTHRESH else val + LINTHRESH * 0.12
-            ax.text(x, y_label, lbl,
+            ax.text(x, val + y_ceil * 0.03, lbl,
                     ha="center", va="bottom",
                     fontsize=7.5, fontweight="600", color="#333")
 
-        # Subtle horizontal reference line at 5 min (Excelente threshold).
-        ax.axhline(y=5, color=TEAL, linewidth=0.7, linestyle=":", alpha=0.6, zorder=1)
-        ax.axhline(y=30, color=AMBER, linewidth=0.7, linestyle=":", alpha=0.5, zorder=1)
-
-        # Vertical segment separators.
+        # Vertical segment separators
         for edge in segment_edges[:-1]:
             ax.axvline(x=edge + SEG_PADDING / 2, color="#DDDDDD",
                        linewidth=1.0, linestyle="--", zorder=1)
 
-        # Segment titles — use a blended transform: data X, axes-fraction Y.
-        # This avoids symlog coordinate distortion and always places the label
-        # at a fixed height (88% up the axes) regardless of the Y scale range.
+        # Segment labels using blended transform (data X, axes Y)
         import matplotlib.transforms as _transforms
         _blended = _transforms.blended_transform_factory(ax.transData, ax.transAxes)
         for center, name in segment_centers:
-            ax.text(center, 0.88, name,
+            ax.text(center, 0.91, name,
                     ha="center", va="top",
                     fontsize=9, fontweight="700", color="#0e0749",
                     transform=_blended)
@@ -312,38 +303,52 @@ def response_time_by_hour_chart(by_hour: dict[int, float]) -> str:
         ax.set_xticks(positions)
         ax.set_xticklabels(tick_labels, fontsize=8, rotation=45, ha="right")
         ax.set_ylabel("Tiempo de respuesta", fontsize=9, labelpad=4)
-        ax.set_ylim(bottom=0)
         ax.set_xlim(min(positions) - 0.8, max(positions) + 0.8)
         ax.spines[["top", "right"]].set_visible(False)
         ax.grid(axis="y", color="#EBEBEB", linewidth=0.55, zorder=0)
 
         legend_handles = [
-            mpatches.Patch(facecolor=TEAL,  label="< 5 min — Excelente"),
-            mpatches.Patch(facecolor=AMBER, label="5–30 min — Regular"),
-            mpatches.Patch(facecolor=CORAL, label="> 30 min — Crítico"),
+            mpatches.Patch(facecolor=TEAL,  label="< 5 min — Ideal"),
+            mpatches.Patch(facecolor=AMBER, label="5–30 min — Aceptable"),
+            mpatches.Patch(facecolor=CORAL, label="> 30 min — Mejorar"),
         ]
         ax.legend(handles=legend_handles,
                   loc="lower center",
-                  bbox_to_anchor=(0.5, 1.0),
+                  bbox_to_anchor=(0.5, 1.02),
                   ncol=3, fontsize=7.5, frameon=False,
                   columnspacing=1.0, handlelength=1.0)
 
-        fig.suptitle("¿A qué hora respondes más lento?",
-                     fontsize=9.5, fontweight="bold", ha="left", x=0.01, y=1.0)
+        fig.suptitle("Velocidad de respuesta por hora del día  ·  Lun–Vie 8 AM–6 PM",
+                     fontsize=9, fontweight="bold", ha="left", x=0.01, y=1.06)
         fig.tight_layout(rect=[0, 0, 1, 0.88])
         return _fig_to_base64(fig)
+
+
+_GENERIC_TOPICS = {"consulta general", "otra consulta", "general", "other"}
 
 
 def topics_bar_chart(results: list[ConversationAnalysisResult], top_n: int = 8) -> str:
     """
     Horizontal bar chart of top conversation topics, sorted descending.
-    Top bar highlighted in deep teal. Labels truncated at 28 chars.
-    Fixed canvas (_W × _H).
+
+    "consulta general" and equivalent generic topics are always pushed to the
+    bottom of the chart and rendered in gray so specific topics stay prominent.
+    Top specific bar highlighted in deep teal.
     """
     topics = [r.primary_topic for r in results if r.primary_topic]
     counter = Counter(topics)
-    # Stable sort: count DESC, topic text ASC — deterministic when counts are tied
-    most_common = sorted(counter.items(), key=lambda x: (-x[1], x[0]))[:top_n]
+
+    # Split into specific topics and generic catch-alls
+    specific = sorted(
+        [(t, c) for t, c in counter.items() if t.lower().strip() not in _GENERIC_TOPICS],
+        key=lambda x: (-x[1], x[0]),
+    )[:top_n]
+    generic = sorted(
+        [(t, c) for t, c in counter.items() if t.lower().strip() in _GENERIC_TOPICS],
+        key=lambda x: (-x[1], x[0]),
+    )
+    # Specific topics first (sorted by count), generic at the bottom
+    most_common = specific + generic
 
     if not most_common:
         with plt.rc_context(_CHART_STYLE):
@@ -366,14 +371,26 @@ def topics_bar_chart(results: list[ConversationAnalysisResult], top_n: int = 8) 
             truncated = truncated[:last_space]
         return truncated + "…"
 
-    labels = [_truncate_label(t).title() for t, _ in most_common][::-1]
-    values = [v for _, v in most_common][::-1]
+    topics_ordered = most_common[::-1]  # bottom→top for horizontal chart
+    labels = [_truncate_label(t).title() for t, _ in topics_ordered]
+    values = [v for _, v in topics_ordered]
+    is_generic = [t.lower().strip() in _GENERIC_TOPICS for t, _ in topics_ordered]
     total = len(results) or 1
     max_val = max(values) if values else 1
 
-    # Highest bar gets the deep-teal highlight
-    bar_colors = [TEAL_DARK if i == len(labels) - 1 else TEAL
-                  for i in range(len(labels))]
+    # Specific topics: teal (top specific bar gets deep teal highlight)
+    # Generic topics: gray — visually separated from actionable data
+    top_specific_idx = next(
+        (i for i in range(len(labels) - 1, -1, -1) if not is_generic[i]), None
+    )
+    bar_colors = []
+    for i, generic in enumerate(is_generic):
+        if generic:
+            bar_colors.append(GRAY)
+        elif i == top_specific_idx:
+            bar_colors.append(TEAL_DARK)
+        else:
+            bar_colors.append(TEAL)
 
     with plt.rc_context(_CHART_STYLE):
         fig, ax = plt.subplots(figsize=(_W, _H))
@@ -390,7 +407,9 @@ def topics_bar_chart(results: list[ConversationAnalysisResult], top_n: int = 8) 
                 va="center", ha="left", fontsize=8.5, color="#333333",
             )
 
-        fig.suptitle("¿Sobre qué preguntan tus clientes?",
+        has_generic = any(is_generic)
+        title_suffix = "  (gris = sin categoría específica)" if has_generic else ""
+        fig.suptitle(f"¿Sobre qué preguntan tus clientes?{title_suffix}",
                      fontsize=9.5, fontweight="bold", ha="left", x=0.01)
         ax.set_xlabel("Conversaciones", fontsize=9, labelpad=4)
         ax.set_xlim(0, max_val * 1.32)

@@ -112,11 +112,18 @@ def is_ghosted(
 
 
 # ─── Operational coverage (replaces the hardcoded 50) ─────────────────────────
-# Default business-hours window used for operational coverage. Tunable per client
-# in a future iteration; keep it conservative — most Colombian MiPymes operate
-# Mon-Sat 8 AM to 7 PM.
-DEFAULT_BUSINESS_HOURS_START = 8     # inclusive
-DEFAULT_BUSINESS_HOURS_END = 19      # exclusive
+# Business-hours window (Colombia local time, UTC-5).
+# Unified with the response-time chart which uses the same 8 AM-6 PM range.
+DEFAULT_BUSINESS_HOURS_START = 8     # inclusive — 8 AM Colombia
+DEFAULT_BUSINESS_HOURS_END = 18      # exclusive — 6 PM Colombia (was 19, now matches chart)
+
+# Colombia is UTC-5 year-round (no daylight saving time).
+_COLOMBIA_UTC_OFFSET = -5
+
+
+def _colombia_hour(ts: datetime) -> int:
+    """Convert a naive UTC timestamp to Colombia local hour (UTC-5)."""
+    return (ts.hour + _COLOMBIA_UTC_OFFSET) % 24
 
 
 def inbound_in_business_hours(
@@ -126,15 +133,14 @@ def inbound_in_business_hours(
 ) -> tuple[int, int]:
     """
     Split inbound messages into (business_hours_count, after_hours_count).
-
-    A message is "in business hours" if its hour is in [start_hour, end_hour).
+    Uses Colombia local time (UTC-5) — timestamps are stored as naive UTC.
     """
     in_hours = 0
     after_hours = 0
     for m in messages:
         if m.direction != MessageDirection.INBOUND:
             continue
-        hour = m.timestamp.hour
+        hour = _colombia_hour(m.timestamp)
         if start_hour <= hour < end_hour:
             in_hours += 1
         else:
@@ -191,14 +197,16 @@ def operational_coverage_score(
                 waiting_since = msg
         elif msg.direction == MessageDirection.OUTBOUND and waiting_since is not None:
             elapsed = (msg.timestamp - waiting_since.timestamp).total_seconds()
-            if start_hour <= waiting_since.timestamp.hour < end_hour:
+            # Use Colombia local hour — timestamps are stored as naive UTC
+            col_hour = _colombia_hour(waiting_since.timestamp)
+            if start_hour <= col_hour < end_hour:
                 in_hours_total += 1
                 if 0 <= elapsed <= answer_window_seconds:
                     in_hours_answered += 1
             waiting_since = None
 
     # An open wait at the end means an in-hours arrival went unanswered.
-    if waiting_since is not None and start_hour <= waiting_since.timestamp.hour < end_hour:
+    if waiting_since is not None and start_hour <= _colombia_hour(waiting_since.timestamp) < end_hour:
         in_hours_total += 1
 
     if in_hours_total == 0:
