@@ -649,7 +649,7 @@ async def request_auth_code(
 async def manual_sync(
     connection_id: UUID,
     background_tasks: BackgroundTasks,
-    force_full: bool = False,
+    force_full: bool = True,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
     waha: WahaClient = Depends(get_waha_client),

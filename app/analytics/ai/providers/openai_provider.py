@@ -3,6 +3,12 @@ import openai
 from app.analytics.ai.provider import AIProvider, AIResponse
 from app.exceptions import AIProviderError
 
+# GPT-5+ family uses `max_completion_tokens`; older models use `max_tokens`.
+_MAX_COMPLETION_TOKENS_MODELS: frozenset[str] = frozenset({
+    "gpt-5", "gpt-5-mini", "gpt-5-nano",
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+})
+
 # Cost per million tokens (USD). Verified May 2026.
 _PRICING: dict[str, dict[str, float]] = {
     # GPT-4 (legacy)
@@ -48,7 +54,7 @@ class OpenAIProvider(AIProvider):
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": temperature,
-                "max_tokens": max_tokens,
+                ("max_completion_tokens" if self._model in _MAX_COMPLETION_TOKENS_MODELS else "max_tokens"): max_tokens,
                 "seed": 42,
             }
             if response_format == "json":
