@@ -1,151 +1,817 @@
 """
-Generate a sample PDF report with high-quality synthetic data (~85/100 score)
-to validate the report styling without hitting the database or AI providers.
+Generate a sample PDF report with realistic synthetic data for a "Salón de Belleza"
+to validate the full report styling and every section of the current pipeline:
+FRT segmentation (new vs returning), commercial funnel, WAHA metrics, hourly charts,
+comparison vs previous report, action plan, health score breakdown.
 
 Run from project root:
     python scripts/generate_sample_report.py
 
 Output: ./reporte-deeplook-sample.pdf
 """
-import random
 import sys
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
-# Make `app.*` importable when run as a script
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.delivery.reports.pdf_generator import generate_pdf_report
 from app.models.enums import ConversionStatus, Sentiment
 from app.models.schemas import ConversationAnalysisResult, QualityBreakdown
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+BASE = datetime(2026, 5, 1, 9, 0, 0)
 
-random.seed(42)  # deterministic output
-
-# Mix designed to land ~82-85/100 ("Bueno"):
-#   • Velocidad: avg first response ~90-180s   → ~24/25
-#   • Cobertura: 1 unanswered of 30  (3.3%)    → ~13/15
-#   • Sentimiento: 70% pos / 23% neu / 7% neg  → ~17/20
-#   • Calidad: avg ~8.5/10                     → ~13/15
-#   • Conversión: ~67% of applicable           → ~9/15
-#   • Cobertura horaria: default 50            → 5/10
-PROFILES = (
-    [("converted", "positive", 8.8, 75)] * 18  # 18 happy converted
-    + [("pending",   "neutral",  7.5, 200)] * 4   # 4 pending neutral
-    + [("lost",      "negative", 6.0, 600)] * 2   # 2 lost negative
-    + [("lost",      "neutral",  6.5, 450)] * 3   # 3 lost neutral
-    + [("not_applicable", "neutral", 7.0, 120)] * 3  # 3 N/A
-)
+_id_counter = 0
 
 
-TOPICS = [
-    "precios y cotizaciones",
-    "disponibilidad y horarios",
-    "información de servicios",
-    "agendar cita",
-    "promociones",
-    "ubicación",
-]
-
-POSITIVE_REASONS = [
-    "La cliente confirmó la cita y agradeció la atención rápida",
-    "El cliente quedó satisfecho con la información y reservó",
-    "La conversación cerró con compra inmediata",
-]
-NEUTRAL_REASONS = [
-    "El cliente recibió la información solicitada sin manifestar entusiasmo",
-    "La conversación fue informativa, sin compromiso de compra",
-]
-NEGATIVE_REASONS = [
-    "El cliente expresó frustración por el tiempo de espera inicial",
-    "La cliente no encontró la opción que buscaba",
-]
+def _cid() -> str:
+    global _id_counter
+    _id_counter += 1
+    return f"sample-{_id_counter:03d}"
 
 
-def _make_result(idx: int, profile: tuple) -> ConversationAnalysisResult:
-    status, sentiment, quality, frt = profile
-    started = datetime(2026, 4, random.randint(1, 30), random.randint(8, 19), random.randint(0, 59), tzinfo=timezone.utc)
-    avg_rt = frt + random.randint(20, 120)
-    inbound = random.randint(4, 9)
-    outbound = inbound + random.randint(0, 2)
-    is_unanswered = idx == 7  # exactly one unanswered conversation
+def _dt(days: int = 0, hours: int = 0, minutes: int = 0) -> datetime:
+    return BASE + timedelta(days=days, hours=hours, minutes=minutes)
+
+
+def _make(
+    *,
+    phone: str,
+    name: str | None = None,
+    started_days: int = 0,
+    started_hours: int = 10,
+    sentiment: Sentiment = Sentiment.POSITIVE,
+    sentiment_score: float = 0.75,
+    sentiment_reason: str = "Cliente satisfecho con la atención recibida.",
+    primary_topic: str = "Consulta general",
+    secondary_topics: list[str] | None = None,
+    quality_score: float | None = 8.0,
+    helpfulness: float = 8.0,
+    tone: float = 8.0,
+    completeness: float = 7.5,
+    conversion_status: ConversionStatus = ConversionStatus.NOT_APPLICABLE,
+    conversion_reason: str | None = None,
+    summary: str = "Conversación atendida de forma correcta.",
+    key_points: list[str] | None = None,
+    customer_questions: list[str] | None = None,
+    first_rt: float | None = 180.0,
+    avg_rt: float | None = 320.0,
+    median_rt: float | None = 290.0,
+    p95_rt: float | None = 820.0,
+    avg_rt_bh: float | None = 260.0,
+    total_messages: int = 10,
+    inbound: int = 5,
+    outbound: int = 5,
+    duration_min: float = 25.0,
+    unanswered: int = 0,
+    trailing_inbound: int = 0,
+    response_time_by_hour: dict[str, float] | None = None,
+    # WAHA metrics
+    delivery_rate: float | None = 98.0,
+    read_rate: float | None = 88.0,
+    is_ghosted: bool = False,
+    op_coverage: float | None = 90.0,
+    ooh_inbound_pct: float | None = 10.0,
+    wa_unread: int | None = 0,
+    wa_muted: bool = False,
+    wa_archived: bool = False,
+    # client relationship
+    client_rel: str | None = "returning",
+    client_rel_source: str | None = "ai",
+    # commercial funnel
+    has_intent: bool = False,
+    intent_stage: str | None = None,
+    intent_first_at: datetime | None = None,
+    quote_requested_at: datetime | None = None,
+    quote_sent_at: datetime | None = None,
+    quote_rt_seconds: int | None = None,
+    followup_count: int | None = None,
+    followup_delay_h: float | None = None,
+    lost_reason: str | None = None,
+    lost_reason_detail: str | None = None,
+) -> ConversationAnalysisResult:
+    started = _dt(days=started_days, hours=started_hours)
     return ConversationAnalysisResult(
-        conversation_id=str(uuid.uuid4()),
-        contact_phone=f"57301{random.randint(1000000, 9999999)}",
-        contact_name=f"Cliente {idx + 1}",
+        conversation_id=_cid(),
+        contact_phone=phone,
+        contact_name=name,
         started_at=started,
-        sentiment=Sentiment(sentiment),
-        sentiment_score={"positive": 0.85, "neutral": 0.55, "negative": 0.25}[sentiment],
-        sentiment_reason=random.choice(
-            POSITIVE_REASONS if sentiment == "positive"
-            else NEGATIVE_REASONS if sentiment == "negative"
-            else NEUTRAL_REASONS
-        ),
-        primary_topic=random.choice(TOPICS),
-        secondary_topics=random.sample(TOPICS, 2),
-        quality_score=round(quality + random.uniform(-0.4, 0.4), 1),
+        sentiment=sentiment,
+        sentiment_score=sentiment_score,
+        sentiment_reason=sentiment_reason,
+        primary_topic=primary_topic,
+        secondary_topics=secondary_topics or [],
+        quality_score=quality_score,
         quality_breakdown=QualityBreakdown(
-            helpfulness=round(quality + random.uniform(-0.5, 0.5), 1),
-            tone=round(quality + 0.3 + random.uniform(-0.3, 0.3), 1),
-            completeness=round(quality - 0.2 + random.uniform(-0.4, 0.4), 1),
+            helpfulness=helpfulness, tone=tone, completeness=completeness
         ),
-        conversion_status=ConversionStatus(status),
-        conversion_reason={
-            "converted":      "El cliente confirmó la cita y realizó el pago anticipado",
-            "lost":           "El cliente decidió no continuar con el servicio",
-            "pending":        "El cliente quedó en pensarlo y volver a contactar",
-            "not_applicable": "Consulta general sin intención de compra",
-        }[status],
-        summary=(
-            "El cliente consultó por el servicio. La asesora respondió con claridad, "
-            "ofreció opciones y guió al cliente hacia una decisión. "
-            "La interacción fue profesional y eficiente."
-        ),
-        key_points=[
-            "Respuesta rápida en menos de 2 minutos",
-            "Información completa enviada de inmediato",
-            "Cliente confirmó interés",
-        ],
-        customer_questions=[
-            "¿Cuánto cuesta el servicio?",
-            "¿Tienen disponibilidad esta semana?",
-        ],
-        first_response_time_seconds=None if is_unanswered else float(frt + random.randint(-30, 60)),
-        avg_response_time_seconds=None if is_unanswered else float(avg_rt),
-        median_response_time_seconds=None if is_unanswered else float(avg_rt - 30),
-        p95_response_time_seconds=None if is_unanswered else float(avg_rt + 200),
-        unanswered_count=1 if is_unanswered else 0,
-        trailing_inbound_messages=2 if is_unanswered else 0,
-        total_messages=inbound + outbound,
+        conversion_status=conversion_status,
+        conversion_reason=conversion_reason,
+        summary=summary,
+        key_points=key_points or [],
+        customer_questions=customer_questions or [],
+        first_response_time_seconds=first_rt,
+        avg_response_time_seconds=avg_rt,
+        median_response_time_seconds=median_rt,
+        p95_response_time_seconds=p95_rt,
+        avg_response_time_bh_seconds=avg_rt_bh,
+        unanswered_count=unanswered,
+        trailing_inbound_messages=trailing_inbound,
+        total_messages=total_messages,
         inbound_count=inbound,
         outbound_count=outbound,
-        duration_minutes=float(random.randint(8, 45)),
-        delivery_rate=1.0,
-        read_rate=round(random.uniform(0.85, 0.98), 2),
-        wa_is_muted=False,
-        wa_is_archived=False,
+        duration_minutes=duration_min,
+        response_time_by_hour=response_time_by_hour,
+        delivery_rate=delivery_rate,
+        read_rate=read_rate,
+        is_ghosted=is_ghosted,
+        operational_coverage_score=op_coverage,
+        out_of_hours_inbound_pct=ooh_inbound_pct,
+        wa_unread_count=wa_unread,
+        wa_is_muted=wa_muted,
+        wa_is_archived=wa_archived,
+        client_relationship=client_rel,
+        client_relationship_source=client_rel_source,
+        has_purchase_intent=has_intent,
+        intent_stage=intent_stage,
+        intent_first_at=intent_first_at,
+        quote_requested_at=quote_requested_at,
+        quote_sent_at=quote_sent_at,
+        quote_response_time_seconds=quote_rt_seconds,
+        post_quote_followup_count=followup_count,
+        followup_delay_hours=followup_delay_h,
+        lost_reason=lost_reason,
+        lost_reason_detail=lost_reason_detail,
     )
 
 
+# ---------------------------------------------------------------------------
+# Hourly response-time pattern (Colombia business hours)
+# ---------------------------------------------------------------------------
+_HOUR_SLOW = {"8": 580.0, "9": 310.0, "10": 190.0, "11": 160.0,
+              "12": 640.0, "13": 720.0, "14": 250.0, "15": 230.0,
+              "16": 290.0, "17": 420.0}
+
+# ---------------------------------------------------------------------------
+# 30 conversations for a "Salón de Belleza"
+# ---------------------------------------------------------------------------
+results = [
+
+    # ─── CLIENTES NUEVAS — CONVERTIDAS ───────────────────────────────────────
+    _make(
+        phone="+573101110001", name="Valentina Torres",
+        started_days=0, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.91,
+        sentiment_reason="Muy emocionada con el resultado de las uñas.",
+        primary_topic="Uñas acrílicas",
+        secondary_topics=["Precios", "Disponibilidad"],
+        quality_score=9.2, helpfulness=9.5, tone=9.0, completeness=9.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó cita de uñas acrílicas y llegó ese mismo día.",
+        summary="Cliente nueva preguntó por el precio de uñas acrílicas con diseño. La asesora respondió rápido, envió catálogo de diseños y ofreció cita para esa tarde. La cliente confirmó.",
+        key_points=["Precio $85.000 con diseño incluido", "Cita agendada para las 3pm", "Llegó puntual y quedó feliz"],
+        customer_questions=["¿Cuánto cuestan las uñas acrílicas?", "¿Tienen disponibilidad hoy?", "¿El diseño tiene costo adicional?"],
+        first_rt=85.0, avg_rt=165.0, median_rt=150.0, p95_rt=380.0, avg_rt_bh=140.0,
+        total_messages=14, inbound=7, outbound=7, duration_min=32.0,
+        response_time_by_hour={"9": 165.0, "10": 170.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="new", client_rel_source="both",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(0, 9),
+        quote_sent_at=_dt(0, 9) + timedelta(minutes=10),
+        quote_rt_seconds=600, followup_count=0,
+    ),
+
+    _make(
+        phone="+573101110002", name="Camila Rodríguez",
+        started_days=0, started_hours=11,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.85,
+        sentiment_reason="Muy satisfecha con la cotización y el trato.",
+        primary_topic="Extensiones de cabello",
+        secondary_topics=["Duración", "Mantenimiento"],
+        quality_score=8.8, helpfulness=9.0, tone=8.5, completeness=9.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó aplicación de extensiones para el sábado.",
+        summary="Consulta sobre extensiones de cabello natural. Asesora explicó proceso, duración y cuidados. La clienta decidió agendar para el fin de semana.",
+        customer_questions=["¿Qué tipos de extensiones manejan?", "¿Cuánto tiempo duran?", "¿Cuánto cuesta la aplicación?"],
+        first_rt=120.0, avg_rt=240.0, median_rt=220.0, p95_rt=580.0, avg_rt_bh=205.0,
+        total_messages=16, inbound=8, outbound=8, duration_min=40.0,
+        response_time_by_hour={"11": 240.0, "12": 260.0},
+        delivery_rate=100.0, read_rate=97.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(0, 11),
+        quote_sent_at=_dt(0, 11) + timedelta(minutes=18),
+        quote_rt_seconds=1080, followup_count=1, followup_delay_h=2.0,
+    ),
+
+    _make(
+        phone="+573101110003", name="Sara Méndez",
+        started_days=1, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.83,
+        primary_topic="Alisado permanente",
+        secondary_topics=["Tiempo de aplicación", "Cuidados posteriores"],
+        quality_score=8.6, helpfulness=8.5, tone=9.0, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó alisado brasileño para la siguiente semana.",
+        summary="Clienta nueva consultó sobre alisado permanente. Asesora aclaró diferencia entre alisado y keratina, tiempos y precios. La clienta agendó.",
+        customer_questions=["¿En qué se diferencia el alisado de la keratina?", "¿Cuánto tiempo dura el proceso?"],
+        first_rt=150.0, avg_rt=290.0, median_rt=270.0, p95_rt=700.0, avg_rt_bh=250.0,
+        total_messages=14, inbound=7, outbound=7, duration_min=35.0,
+        response_time_by_hour={"9": 290.0},
+        delivery_rate=99.0, read_rate=94.0, op_coverage=95.0, ooh_inbound_pct=5.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(1, 9),
+        quote_sent_at=_dt(1, 9) + timedelta(minutes=25),
+        quote_rt_seconds=1500, followup_count=1, followup_delay_h=4.0,
+    ),
+
+    _make(
+        phone="+573101110004", name="Daniela Ospina",
+        started_days=1, started_hours=14,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.79,
+        primary_topic="Manicure y pedicure",
+        quality_score=8.3, helpfulness=8.5, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó combo manicure + pedicure semipermanente.",
+        summary="Primera visita al salón. Preguntó por combo manicure y pedicure. Precio aceptado y cita confirmada.",
+        customer_questions=["¿Tienen combo de manicure y pedicure?", "¿El semipermanente cuántos días dura?"],
+        first_rt=110.0, avg_rt=210.0, median_rt=195.0, p95_rt=500.0, avg_rt_bh=185.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=22.0,
+        response_time_by_hour={"14": 210.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(1, 14),
+        quote_sent_at=_dt(1, 14) + timedelta(minutes=12),
+        quote_rt_seconds=720, followup_count=0,
+    ),
+
+    _make(
+        phone="+573101110005", name="Mariana Jiménez",
+        started_days=2, started_hours=10,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.88,
+        primary_topic="Maquillaje de novia",
+        secondary_topics=["Prueba de maquillaje", "Precio paquete"],
+        quality_score=9.0, helpfulness=9.0, tone=9.5, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Contrató paquete novia: prueba + día del evento.",
+        summary="Futura novia consultó por el paquete de maquillaje para su boda. Asesora explicó el proceso de prueba previa. Contrató paquete completo.",
+        key_points=["Boda el 15 de junio", "Prueba agendada 2 semanas antes", "Paquete incluye novia + madrina principal"],
+        customer_questions=["¿Qué incluye el paquete de novia?", "¿Hacen prueba de maquillaje?", "¿Pueden ir al lugar del evento?"],
+        first_rt=95.0, avg_rt=190.0, median_rt=175.0, p95_rt=430.0, avg_rt_bh=160.0,
+        total_messages=20, inbound=10, outbound=10, duration_min=55.0,
+        response_time_by_hour={"10": 190.0, "11": 200.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="new", client_rel_source="both",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(2, 10),
+        quote_requested_at=_dt(2, 10) + timedelta(minutes=15),
+        quote_sent_at=_dt(2, 10) + timedelta(minutes=28),
+        quote_rt_seconds=1680, followup_count=2, followup_delay_h=1.0,
+    ),
+
+    # ─── CLIENTES HABITUALES — CONVERTIDAS ───────────────────────────────────
+    _make(
+        phone="+573102220001", name="Paola Guerrero",
+        started_days=2, started_hours=8,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.92,
+        sentiment_reason="Clienta fiel, siempre queda feliz.",
+        primary_topic="Mantenimiento de uñas",
+        quality_score=9.1, helpfulness=9.0, tone=9.5, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó mantenimiento mensual de rutina.",
+        summary="Clienta habitual con cita mensual para mantenimiento de uñas acrílicas. Confirmó cita sin necesidad de cotización.",
+        customer_questions=["¿Tienen disponibilidad el miércoles a las 11?"],
+        first_rt=55.0, avg_rt=110.0, median_rt=100.0, p95_rt=250.0, avg_rt_bh=90.0,
+        total_messages=8, inbound=4, outbound=4, duration_min=12.0,
+        response_time_by_hour={"8": 110.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    _make(
+        phone="+573102220002", name="Alejandra Castro",
+        started_days=3, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.87,
+        primary_topic="Retoque de tinte",
+        quality_score=8.9, helpfulness=9.0, tone=9.0, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó retoque de raíces.",
+        summary="Clienta recurrente pidió cita para retoque de tinte. La asesora recordó el color anterior y propuso hora disponible.",
+        customer_questions=["¿Cuándo tienen disponible para retoque de raíces?"],
+        first_rt=70.0, avg_rt=140.0, median_rt=130.0, p95_rt=320.0, avg_rt_bh=120.0,
+        total_messages=8, inbound=4, outbound=4, duration_min=14.0,
+        response_time_by_hour={"9": 140.0},
+        delivery_rate=100.0, read_rate=98.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    _make(
+        phone="+573102220003", name="Tatiana Vargas",
+        started_days=4, started_hours=10,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.80,
+        primary_topic="Depilación con cera",
+        quality_score=8.5, helpfulness=8.5, tone=8.5, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó sesión mensual de depilación.",
+        summary="Clienta habitual para depilación. Cita confirmada sin objeciones.",
+        customer_questions=["¿Hay cupo el viernes en la tarde?"],
+        first_rt=80.0, avg_rt=160.0, median_rt=148.0, p95_rt=360.0, avg_rt_bh=135.0,
+        total_messages=6, inbound=3, outbound=3, duration_min=10.0,
+        response_time_by_hour={"10": 160.0},
+        delivery_rate=100.0, read_rate=96.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    _make(
+        phone="+573102220004", name="Carolina Ríos",
+        started_days=5, started_hours=14,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.84,
+        primary_topic="Control post-alisado",
+        quality_score=8.7, helpfulness=9.0, tone=8.5, completeness=8.5,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Clienta preguntó si podía lavar el cabello a los 3 días del alisado. La asesora respondió con instrucciones claras.",
+        customer_questions=["¿Puedo lavar el cabello ya?", "¿Qué shampoo me recomiendan?"],
+        first_rt=90.0, avg_rt=180.0, median_rt=165.0, p95_rt=420.0, avg_rt_bh=155.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=18.0,
+        response_time_by_hour={"14": 180.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    _make(
+        phone="+573102220005", name="Isabela Morales",
+        started_days=6, started_hours=11,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.76,
+        primary_topic="Manicure semipermanente",
+        quality_score=8.2, helpfulness=8.0, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó manicure + eyebrows combo.",
+        summary="Clienta habitual que suele venir cada tres semanas. Agendó sin problemas.",
+        first_rt=65.0, avg_rt=130.0, median_rt=120.0, p95_rt=300.0, avg_rt_bh=110.0,
+        total_messages=8, inbound=4, outbound=4, duration_min=12.0,
+        response_time_by_hour={"11": 130.0},
+        delivery_rate=100.0, read_rate=100.0, op_coverage=100.0, ooh_inbound_pct=0.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    # ─── PENDIENTES CON INTENCIÓN DE COMPRA ──────────────────────────────────
+    _make(
+        phone="+573103330001", name="Gabriela Herrera",
+        started_days=3, started_hours=10,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.78,
+        primary_topic="Maquillaje de novia",
+        secondary_topics=["Prueba previa", "Peinado de novia"],
+        quality_score=8.4, helpfulness=8.5, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.PENDING,
+        conversion_reason="Está revisando propuestas de otros salones antes de decidir.",
+        summary="Futura novia consultó por el paquete de maquillaje. Recibió cotización completa. Está comparando con otro salón antes de decidir.",
+        customer_questions=["¿Incluyen el peinado?", "¿Pueden hacer prueba un mes antes?", "¿Hacen envío a otro municipio?"],
+        first_rt=180.0, avg_rt=360.0, median_rt=335.0, p95_rt=870.0, avg_rt_bh=310.0,
+        total_messages=20, inbound=11, outbound=9, duration_min=60.0,
+        response_time_by_hour={"10": 360.0, "11": 370.0},
+        delivery_rate=99.0, read_rate=92.0, op_coverage=88.0, ooh_inbound_pct=12.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="quoted",
+        intent_first_at=_dt(3, 10),
+        quote_requested_at=_dt(3, 10) + timedelta(minutes=20),
+        quote_sent_at=_dt(3, 10) + timedelta(minutes=55),
+        quote_rt_seconds=2100, followup_count=2, followup_delay_h=5.0,
+    ),
+
+    _make(
+        phone="+573103330002", name="Natalia López",
+        started_days=4, started_hours=15,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.55,
+        primary_topic="Extensiones de cabello",
+        secondary_topics=["Tipos de extensiones", "Mantenimiento"],
+        quality_score=7.9, helpfulness=8.0, tone=8.0, completeness=7.5,
+        conversion_status=ConversionStatus.PENDING,
+        conversion_reason="Está tramitando el presupuesto con su pareja.",
+        summary="Interesada en extensiones de cabello natural pero el precio ($600.000) fue alto para su presupuesto actual. Quedó de consultar.",
+        customer_questions=["¿Cuánto cuestan las extensiones de pelo natural?", "¿Tienen opciones más económicas?"],
+        first_rt=250.0, avg_rt=490.0, median_rt=460.0, p95_rt=1200.0, avg_rt_bh=420.0,
+        total_messages=18, inbound=10, outbound=8, duration_min=55.0,
+        response_time_by_hour={"15": 490.0, "16": 510.0},
+        delivery_rate=98.0, read_rate=89.0, op_coverage=85.0, ooh_inbound_pct=15.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="pending",
+        intent_first_at=_dt(4, 15),
+        quote_sent_at=_dt(4, 15) + timedelta(minutes=45),
+        quote_rt_seconds=2700, followup_count=1, followup_delay_h=24.0,
+    ),
+
+    _make(
+        phone="+573103330003", name="Stefanía Peña",
+        started_days=7, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.72,
+        primary_topic="Alisado permanente",
+        quality_score=8.1, helpfulness=8.0, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.PENDING,
+        conversion_reason="Quiere hacerlo después de que pase el invierno.",
+        summary="Consultó alisado pero decidió esperar a que termine la temporada de lluvia. Tiene la intención de volver en 2 meses.",
+        customer_questions=["¿El alisado se daña con la humedad?"],
+        first_rt=220.0, avg_rt=420.0, median_rt=395.0, p95_rt=1000.0, avg_rt_bh=370.0,
+        total_messages=12, inbound=7, outbound=5, duration_min=32.0,
+        response_time_by_hour={"9": 420.0},
+        delivery_rate=99.0, read_rate=91.0, op_coverage=87.0, ooh_inbound_pct=13.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="exploring",
+        intent_first_at=_dt(7, 9),
+    ),
+
+    _make(
+        phone="+573103330004", name="Luisa Fernanda Gil",
+        started_days=9, started_hours=16,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.52,
+        primary_topic="Uñas acrílicas",
+        quality_score=7.8, helpfulness=8.0, tone=7.5, completeness=8.0,
+        conversion_status=ConversionStatus.PENDING,
+        conversion_reason="Esperando confirmación de fecha disponible.",
+        summary="Clienta nueva preguntó disponibilidad. La asesora tardó más de 5 minutos y la cliente ya no respondió.",
+        customer_questions=["¿Tienen cupo para hoy?", "¿Cuánto demoran las uñas en gel?"],
+        first_rt=380.0, avg_rt=700.0, median_rt=660.0, p95_rt=1700.0, avg_rt_bh=600.0,
+        total_messages=8, inbound=5, outbound=3, duration_min=20.0,
+        response_time_by_hour={"16": 700.0},
+        delivery_rate=97.0, read_rate=82.0, op_coverage=78.0, ooh_inbound_pct=22.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="pending",
+        intent_first_at=_dt(9, 16),
+        quote_sent_at=_dt(9, 16) + timedelta(minutes=10),
+        quote_rt_seconds=600,
+    ),
+
+    # ─── PERDIDAS ─────────────────────────────────────────────────────────────
+    _make(
+        phone="+573104440001", name="Andrea Suárez",
+        started_days=5, started_hours=11,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.45,
+        primary_topic="Extensiones de cabello",
+        quality_score=7.5, helpfulness=7.5, tone=7.5, completeness=7.5,
+        conversion_status=ConversionStatus.LOST,
+        conversion_reason="El precio fue muy alto comparado con otro salón.",
+        summary="Clienta muy interesada en extensiones pero al conocer el precio ($650.000) decidió ir a otro salón que le ofreció el mismo servicio a $420.000.",
+        customer_questions=["¿Pueden bajar el precio?", "¿Por qué es tan caro?"],
+        first_rt=280.0, avg_rt=560.0, median_rt=530.0, p95_rt=1350.0, avg_rt_bh=490.0,
+        total_messages=16, inbound=9, outbound=7, duration_min=48.0,
+        response_time_by_hour={"11": 560.0, "12": 590.0},
+        delivery_rate=96.0, read_rate=83.0, op_coverage=80.0, ooh_inbound_pct=20.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="lost",
+        intent_first_at=_dt(5, 11),
+        quote_requested_at=_dt(5, 11) + timedelta(minutes=15),
+        quote_sent_at=_dt(5, 11) + timedelta(minutes=55),
+        quote_rt_seconds=2400, followup_count=2, followup_delay_h=3.0,
+        lost_reason="price",
+        lost_reason_detail="Otro salón le ofreció extensiones sintéticas a $420.000 vs los $650.000 de extensiones naturales cotizados.",
+    ),
+
+    _make(
+        phone="+573104440002", name="Manuela Torres",
+        started_days=6, started_hours=16,
+        sentiment=Sentiment.NEGATIVE, sentiment_score=0.22,
+        primary_topic="Maquillaje de novia",
+        quality_score=6.8, helpfulness=7.0, tone=6.5, completeness=7.0,
+        conversion_status=ConversionStatus.LOST,
+        conversion_reason="Eligió otro salón con mejores referencias en Instagram.",
+        summary="Futura novia comparó el salón con varios perfiles de Instagram. Eligió otro salón que tenía más fotos de novias recientes. Mencionó que tardaron mucho en enviar la cotización.",
+        customer_questions=["¿Tienen portafolio de novias?", "¿Por qué tardaron en responder?"],
+        first_rt=1800.0, avg_rt=1200.0, median_rt=1100.0, p95_rt=2800.0, avg_rt_bh=1050.0,
+        total_messages=18, inbound=11, outbound=7, duration_min=65.0,
+        response_time_by_hour={"16": 1800.0, "17": 1400.0},
+        delivery_rate=94.0, read_rate=76.0, op_coverage=65.0, ooh_inbound_pct=35.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="lost",
+        intent_first_at=_dt(6, 16),
+        quote_requested_at=_dt(6, 16) + timedelta(minutes=25),
+        quote_sent_at=_dt(6, 16) + timedelta(hours=2),
+        quote_rt_seconds=7200, followup_count=1, followup_delay_h=0.5,
+        lost_reason="competition",
+        lost_reason_detail="Otro salón respondió en 5 minutos con portafolio de novias. La demora de 2h en enviar la cotización generó desconfianza.",
+    ),
+
+    _make(
+        phone="+573104440003", name="Xiomara Díaz",
+        started_days=10, started_hours=10,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.48,
+        primary_topic="Alisado permanente",
+        quality_score=7.2, helpfulness=7.5, tone=7.0, completeness=7.0,
+        conversion_status=ConversionStatus.LOST,
+        conversion_reason="No era el momento, pospuso para más adelante.",
+        summary="Interesada en alisado pero acaba de quedarse sin trabajo y está recortando gastos. Dijo que volvería en 2 meses.",
+        first_rt=340.0, avg_rt=620.0, median_rt=590.0, p95_rt=1500.0, avg_rt_bh=550.0,
+        total_messages=12, inbound=7, outbound=5, duration_min=35.0,
+        response_time_by_hour={"10": 620.0},
+        delivery_rate=95.0, read_rate=81.0, op_coverage=79.0, ooh_inbound_pct=21.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="lost",
+        intent_first_at=_dt(10, 10),
+        quote_sent_at=_dt(10, 10) + timedelta(minutes=40),
+        quote_rt_seconds=2400, followup_count=0,
+        lost_reason="timing",
+        lost_reason_detail="La clienta perdió su empleo recientemente y pospuso todos los gastos no esenciales.",
+    ),
+
+    # ─── NO APLICA — CONSULTAS INFORMATIVAS ──────────────────────────────────
+    _make(
+        phone="+573105550001", name="Sofía Ramírez",
+        started_days=2, started_hours=9,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.6,
+        primary_topic="Consulta de precios",
+        quality_score=7.5, helpfulness=7.5, tone=8.0, completeness=7.0,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Solo quería saber los precios de manicure y pedicure. La asesora envió el menú de servicios.",
+        customer_questions=["¿Tienen menú de precios?", "¿Cuánto cuesta el pedicure spa?"],
+        first_rt=195.0, avg_rt=390.0, median_rt=365.0, p95_rt=930.0, avg_rt_bh=340.0,
+        total_messages=8, inbound=4, outbound=4, duration_min=15.0,
+        response_time_by_hour={"9": 390.0},
+        delivery_rate=97.0, read_rate=86.0, op_coverage=84.0, ooh_inbound_pct=16.0,
+        client_rel="uncertain", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573105550002", name="Ricardo Bedoya",
+        started_days=4, started_hours=12,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.55,
+        primary_topic="Consulta de horarios",
+        quality_score=7.3, helpfulness=7.5, tone=7.5, completeness=7.0,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Quería saber si atienden los domingos. La asesora informó los horarios de atención.",
+        customer_questions=["¿Atienden domingos?", "¿Hasta qué hora trabajan los sábados?"],
+        first_rt=215.0, avg_rt=430.0, median_rt=405.0, p95_rt=1020.0, avg_rt_bh=375.0,
+        total_messages=6, inbound=3, outbound=3, duration_min=10.0,
+        response_time_by_hour={"12": 430.0},
+        delivery_rate=98.0, read_rate=88.0, op_coverage=85.0, ooh_inbound_pct=15.0,
+        client_rel="uncertain", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573105550003", name="Pilar Acosta",
+        started_days=7, started_hours=11,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.72,
+        primary_topic="Consulta de ubicación",
+        quality_score=7.8, helpfulness=8.0, tone=8.0, completeness=7.5,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Clienta preguntó la dirección exacta y si hay parqueadero cerca. La asesora envió ubicación en Google Maps.",
+        customer_questions=["¿Dónde están ubicados?", "¿Hay parqueadero cerca?"],
+        first_rt=160.0, avg_rt=320.0, median_rt=300.0, p95_rt=760.0, avg_rt_bh=280.0,
+        total_messages=6, inbound=3, outbound=3, duration_min=8.0,
+        response_time_by_hour={"11": 320.0},
+        delivery_rate=100.0, read_rate=93.0, op_coverage=92.0, ooh_inbound_pct=8.0,
+        client_rel="uncertain", client_rel_source="ai",
+    ),
+
+    # ─── SIN RESPONDER ────────────────────────────────────────────────────────
+    _make(
+        phone="+573106660001",
+        started_days=8, started_hours=20,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.5,
+        primary_topic="Uñas acrílicas",
+        quality_score=None,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Mensaje recibido a las 8pm fuera de horario. No se dio respuesta.",
+        customer_questions=["¿Tienen disponibilidad para mañana temprano?"],
+        first_rt=None, avg_rt=None, median_rt=None,
+        total_messages=2, inbound=2, outbound=0, duration_min=0.0,
+        unanswered=1, trailing_inbound=2,
+        delivery_rate=None, read_rate=None,
+        op_coverage=0.0, ooh_inbound_pct=100.0, wa_unread=2,
+        client_rel="uncertain", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573106660002", name="Valentina Cano",
+        started_days=10, started_hours=7,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.5,
+        primary_topic="Manicure y pedicure",
+        quality_score=None,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Mensaje enviado a las 7am antes de que el salón abriera. Sin respuesta hasta el cierre.",
+        customer_questions=["¿Tienen cupo para hoy?"],
+        first_rt=None, avg_rt=None, median_rt=None,
+        total_messages=1, inbound=1, outbound=0, duration_min=0.0,
+        unanswered=1, trailing_inbound=1,
+        delivery_rate=None, read_rate=None,
+        op_coverage=0.0, ooh_inbound_pct=100.0, wa_unread=1,
+        client_rel="uncertain", client_rel_source="ai",
+    ),
+
+    # ─── INSATISFECHA / RECLAMO ───────────────────────────────────────────────
+    _make(
+        phone="+573107770001", name="Diana Moreno",
+        started_days=9, started_hours=15,
+        sentiment=Sentiment.NEGATIVE, sentiment_score=0.18,
+        primary_topic="Reclamo por servicio",
+        quality_score=5.5, helpfulness=6.0, tone=5.0, completeness=5.5,
+        conversion_status=ConversionStatus.LOST,
+        conversion_reason="Clienta insatisfecha, no regresará.",
+        summary="Clienta se quejó porque el esmalte semipermanente se le levantó a los 5 días. El asesor tardó 45 minutos en responder y no ofreció solución clara.",
+        customer_questions=["¿Por qué se me levantó el esmalte tan rápido?", "¿Qué garantía tienen?"],
+        first_rt=2750.0, avg_rt=1900.0, median_rt=1800.0, p95_rt=3800.0, avg_rt_bh=1700.0,
+        total_messages=20, inbound=12, outbound=8, duration_min=75.0,
+        response_time_by_hour={"15": 900.0, "16": 1500.0},
+        delivery_rate=93.0, read_rate=74.0, is_ghosted=True,
+        op_coverage=58.0, ooh_inbound_pct=42.0,
+        client_rel="returning", client_rel_source="both",
+    ),
+
+    # ─── INTERNAS / PROVEEDOR ─────────────────────────────────────────────────
+    _make(
+        phone="+573109990001", name="Distribuidora OPI Colombia",
+        started_days=3, started_hours=8,
+        sentiment=Sentiment.NEUTRAL, sentiment_score=0.6,
+        primary_topic="Pedido de productos",
+        quality_score=None,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        summary="Proveedor confirmó envío de esmaltes y acrílicos del pedido mensual.",
+        first_rt=190.0, avg_rt=380.0, median_rt=355.0, p95_rt=900.0, avg_rt_bh=330.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=20.0,
+        delivery_rate=100.0, read_rate=100.0,
+        op_coverage=None, ooh_inbound_pct=None,
+        client_rel="internal", client_rel_source="ai",
+    ),
+
+    # ─── ADICIONALES PARA COMPLETAR 30 ───────────────────────────────────────
+    _make(
+        phone="+573108880001", name="Lorena Castro",
+        started_days=5, started_hours=10,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.82,
+        primary_topic="Corte y tintura",
+        quality_score=8.6, helpfulness=8.5, tone=9.0, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó corte + tintura para el siguiente día.",
+        summary="Quería cambiar el look completamente. La asesora aconsejó sobre tonos que le favorecen y agendó.",
+        customer_questions=["¿Me podrían asesorar sobre qué tono queda mejor con mi tono de piel?"],
+        first_rt=135.0, avg_rt=270.0, median_rt=250.0, p95_rt=640.0, avg_rt_bh=230.0,
+        total_messages=14, inbound=7, outbound=7, duration_min=38.0,
+        response_time_by_hour={"10": 270.0},
+        delivery_rate=99.0, read_rate=95.0, op_coverage=95.0, ooh_inbound_pct=5.0,
+        client_rel="new", client_rel_source="ai",
+        has_intent=True, intent_stage="converted",
+        intent_first_at=_dt(5, 10),
+        quote_sent_at=_dt(5, 10) + timedelta(minutes=22),
+        quote_rt_seconds=1320, followup_count=0,
+    ),
+
+    _make(
+        phone="+573108880002", name="Paula Aguilar",
+        started_days=6, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.77,
+        primary_topic="Pedicure spa",
+        quality_score=8.1, helpfulness=8.0, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó pedicure spa para ese mismo día.",
+        summary="Clienta nueva pidió disponibilidad para pedicure spa relajante. La asesora tenía cupo para las 2pm.",
+        customer_questions=["¿En qué consiste el pedicure spa?", "¿Cuánto dura?"],
+        first_rt=105.0, avg_rt=210.0, median_rt=195.0, p95_rt=490.0, avg_rt_bh=180.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=20.0,
+        response_time_by_hour={"9": 210.0},
+        delivery_rate=100.0, read_rate=97.0, op_coverage=98.0, ooh_inbound_pct=2.0,
+        client_rel="new", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573108880003", name="Nathalie Guzmán",
+        started_days=8, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.79,
+        primary_topic="Uñas acrílicas",
+        quality_score=8.4, helpfulness=8.5, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó uñas acrílicas con diseño navideño.",
+        summary="Clienta nueva pidió uñas temáticas. La asesora mostró fotos de diseños anteriores y la clienta eligió uno.",
+        customer_questions=["¿Hacen diseños personalizados?", "¿Pueden hacer diseño floral?"],
+        first_rt=125.0, avg_rt=250.0, median_rt=230.0, p95_rt=600.0, avg_rt_bh=215.0,
+        total_messages=12, inbound=6, outbound=6, duration_min=28.0,
+        response_time_by_hour={"9": 250.0},
+        delivery_rate=100.0, read_rate=96.0, op_coverage=96.0, ooh_inbound_pct=4.0,
+        client_rel="new", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573108880004", name="Melissa Vega",
+        started_days=9, started_hours=14,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.81,
+        primary_topic="Depilación con cera",
+        quality_score=8.3, helpfulness=8.5, tone=8.5, completeness=8.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó depilación completa de piernas.",
+        summary="Primera vez en el salón. Le explicaron el proceso y los cuidados previos. Agendó cita para el día siguiente.",
+        customer_questions=["¿Debo preparar la piel antes?", "¿Cuánto tiempo dura la cita de depilación completa?"],
+        first_rt=155.0, avg_rt=310.0, median_rt=288.0, p95_rt=740.0, avg_rt_bh=265.0,
+        total_messages=12, inbound=6, outbound=6, duration_min=30.0,
+        response_time_by_hour={"14": 310.0},
+        delivery_rate=99.0, read_rate=94.0, op_coverage=93.0, ooh_inbound_pct=7.0,
+        client_rel="new", client_rel_source="ai",
+    ),
+
+    _make(
+        phone="+573108880005", name="Valentina Reyes",
+        started_days=10, started_hours=9,
+        sentiment=Sentiment.POSITIVE, sentiment_score=0.85,
+        primary_topic="Tratamiento capilar",
+        quality_score=8.7, helpfulness=9.0, tone=8.5, completeness=8.5,
+        conversion_status=ConversionStatus.CONVERTED,
+        conversion_reason="Agendó tratamiento nutritivo para cabello dañado.",
+        summary="Clienta llegó buscando tratamiento para cabello maltratado por tinturas. La asesora recomendó el tratamiento de keratina nutritiva.",
+        customer_questions=["¿Qué tratamientos tienen para cabello muy dañado?", "¿Cuántas sesiones se necesitan?"],
+        first_rt=100.0, avg_rt=200.0, median_rt=185.0, p95_rt=470.0, avg_rt_bh=170.0,
+        total_messages=14, inbound=7, outbound=7, duration_min=35.0,
+        response_time_by_hour={"9": 200.0},
+        delivery_rate=100.0, read_rate=98.0, op_coverage=98.0, ooh_inbound_pct=2.0,
+        client_rel="new", client_rel_source="ai",
+    ),
+
+]
+
+
+# ---------------------------------------------------------------------------
+# Reporte anterior (hace ~15 días) para el bloque de comparación
+# ---------------------------------------------------------------------------
+_prev = [
+    _make(
+        phone="+573199001", name="Prev1",
+        started_days=-15, started_hours=9,
+        sentiment=Sentiment.POSITIVE, quality_score=7.5,
+        first_rt=280.0, avg_rt=520.0, median_rt=490.0,
+        total_messages=12, inbound=6, outbound=6, duration_min=30.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        client_rel="new", delivery_rate=97.0, read_rate=85.0,
+        op_coverage=88.0, ooh_inbound_pct=12.0,
+    ),
+    _make(
+        phone="+573199002", name="Prev2",
+        started_days=-14, started_hours=10,
+        sentiment=Sentiment.NEUTRAL, quality_score=7.0,
+        first_rt=450.0, avg_rt=780.0, median_rt=740.0,
+        total_messages=10, inbound=6, outbound=4, duration_min=28.0,
+        conversion_status=ConversionStatus.PENDING,
+        client_rel="returning", delivery_rate=96.0, read_rate=82.0,
+        op_coverage=82.0, ooh_inbound_pct=18.0,
+    ),
+    _make(
+        phone="+573199003", name="Prev3",
+        started_days=-13, started_hours=15,
+        sentiment=Sentiment.NEGATIVE, quality_score=5.8,
+        first_rt=2100.0, avg_rt=2800.0, median_rt=2650.0,
+        total_messages=16, inbound=10, outbound=6, duration_min=55.0,
+        conversion_status=ConversionStatus.LOST,
+        client_rel="returning", delivery_rate=91.0, read_rate=72.0,
+        op_coverage=62.0, ooh_inbound_pct=38.0,
+    ),
+    _make(
+        phone="+573199004", name="Prev4",
+        started_days=-12, started_hours=9,
+        sentiment=Sentiment.POSITIVE, quality_score=8.0,
+        first_rt=175.0, avg_rt=340.0, median_rt=320.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=22.0,
+        conversion_status=ConversionStatus.CONVERTED,
+        client_rel="new", delivery_rate=100.0, read_rate=93.0,
+        op_coverage=95.0, ooh_inbound_pct=5.0,
+    ),
+    _make(
+        phone="+573199005", name="Prev5",
+        started_days=-11, started_hours=11,
+        sentiment=Sentiment.POSITIVE, quality_score=7.9,
+        first_rt=155.0, avg_rt=300.0, median_rt=280.0,
+        total_messages=10, inbound=5, outbound=5, duration_min=20.0,
+        conversion_status=ConversionStatus.NOT_APPLICABLE,
+        client_rel="returning", delivery_rate=99.0, read_rate=91.0,
+        op_coverage=92.0, ooh_inbound_pct=8.0,
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Generar el PDF
+# ---------------------------------------------------------------------------
 def main() -> None:
-    results = [_make_result(i, p) for i, p in enumerate(PROFILES)]
+    print(f"Generando reporte de muestra con {len(results)} conversaciones...")
 
     pdf_bytes = generate_pdf_report(
         results=results,
-        business_name="DeepLook",
-        job_id=str(uuid.uuid4()),
-        files_processed=1,
-        ai_model="gpt-4o-mini",
+        business_name="Stilos & Color",
+        job_id="sample-2026-05-01",
+        files_processed=len(results),
+        ai_model="claude-sonnet-4-6",
         average_transaction_value=120_000,
         business_type="salon de belleza",
         is_subscribed=True,
-        previous_results=None,
+        account_name="stilosycolor",
+        previous_results=_prev,
+        previous_job_created_at=datetime(2026, 4, 16, 10, 0, 0),
     )
 
     out_path = Path(__file__).resolve().parents[1] / "reporte-deeplook-sample.pdf"
     out_path.write_bytes(pdf_bytes)
-    print(f"✔ Reporte generado: {out_path}  ({len(pdf_bytes) / 1024:.1f} KB, {len(results)} conversaciones)")
+    print(
+        f"✔ Reporte generado: {out_path}  "
+        f"({len(pdf_bytes) / 1024:.1f} KB, {len(results)} conversaciones)"
+    )
 
 
 if __name__ == "__main__":
